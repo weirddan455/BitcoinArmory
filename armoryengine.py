@@ -187,7 +187,7 @@ OS_VARIANT       = ''
 USER_HOME_DIR    = ''
 BTC_HOME_DIR     = ''
 ARMORY_HOME_DIR  = ''
-SUBDIR = 'bitsafedemo' if USE_TESTNET else ''
+SUBDIR = 'bitsafedemo'
 if OS_WINDOWS:
    OS_NAME         = 'Windows'
    OS_VARIANT      = platform.win32_ver()
@@ -6874,7 +6874,7 @@ class PyBtcWallet(object):
       self.chainIndexMap = {}
       self.txAddrMap = {}    # cache for getting tx-labels based on addr search
       if USE_TESTNET:
-         self.addrPoolSize = 100  # this makes debugging so much easier!
+         self.addrPoolSize = 20  # this makes debugging so much easier!
       else:
          self.addrPoolSize = CLI_OPTIONS.keypool
 
@@ -7281,7 +7281,7 @@ class PyBtcWallet(object):
    def createWalletFromMasterPubKey(self, masterHex, \
                                           isActuallyNew=True, \
                                           doRegisterWithBDM=True):
-      p0 = masterHex.index('4104') + 4
+      p0 = masterHex.index('4104') + 2
       pubkey = SecureBinaryData(hex_to_binary(masterHex[p0:p0+130]))
       c0 = masterHex.index('1220') + 4
       chain = SecureBinaryData(hex_to_binary(masterHex[c0:c0+64]))
@@ -7306,7 +7306,7 @@ class PyBtcWallet(object):
       self.uniqueIDBin = (ADDRBYTE + firstAddr.getAddr160()[:5])[::-1]
       self.uniqueIDB58 = binary_to_base58(self.uniqueIDBin)
       self.labelName  = 'BitSafe Demo Wallet'
-      self.labelDescr = 'We\'ll be luck if this works!'
+      self.labelDescr = 'We\'ll be lucky if this works!'
       self.lastComputedChainAddr160 = first160
       self.lastComputedChainIndex  = firstAddr.chainIndex
       self.highestUsedChainIndex   = firstAddr.chainIndex-1
@@ -7316,8 +7316,7 @@ class PyBtcWallet(object):
 
       # We don't have to worry about atomic file operations when
       # creating the wallet: so we just do it naively here.
-      rnd = SecureBinaryData().GenerateRandom(4).toHexStr()
-      newWalletFilePath = os.path.join(ARMORY_HOME_DIR, 'bitsafe_demo_%s.wallet' % rnd)
+      newWalletFilePath = os.path.join(ARMORY_HOME_DIR, 'bitsafe_demo_%s.wallet' % self.uniqueIDB58)
       self.walletPath = newWalletFilePath
       if not newWalletFilePath:
          shortName = self.labelName .replace(' ','_')
@@ -7588,8 +7587,10 @@ class PyBtcWallet(object):
       
       newIndex = self.lastComputedChainIndex + 1
       ekey = self.getChildExtPubFromRoot(newIndex)
+      print ekey.getPub().toHexStr()
+      print ekey.getChain().toHexStr()
       newAddr = PyBtcAddress().createFromPublicKeyData(ekey.getPub())
-      newAddr.chaincode = ekey.getChain()
+      newAddr.chaincode = ekey.getChain().copy()
       newAddr.chainIndex = newIndex
 
       new160 = newAddr.getAddr160()

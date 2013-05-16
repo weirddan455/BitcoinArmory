@@ -439,7 +439,7 @@ class WalletAddrDispModel(QAbstractTableModel):
       addr = self.wlt.addrMap[self.addr160List[row]]
       addr160 = addr.getAddr160()
       addrB58 = addr.getAddrStr()
-      chainIdx = addr.chainIndex+1  # user must get 1-indexed
+      chainIdx = addr.chainIndex  # user must get 1-indexed
       if role==Qt.DisplayRole:
          if col==COL.Address: 
             return QVariant( addrB58 )

@@ -92,6 +92,7 @@ if Test_BitSafe:
 
    masterPubHex = '0a4104180b25d6eb80500a9b61703ac220828536a535f0834aaad527676800bc1769920f316f4df5bec623941897ab53e25980a6ff4f01b4e34fc3fbe23047b34b03c212209733f9a9416b32f4de6119177c58bc88104d64a467b351754ee227ab3662d69a'
    wlt = PyBtcWallet().createWalletFromMasterPubKey(masterPubHex)
+   wlt.pprint()
    a = wlt.getNextUnusedAddress();  print a.binPublicKey65.toHexStr()
    a = wlt.getNextUnusedAddress();  print a.binPublicKey65.toHexStr()
    a = wlt.getNextUnusedAddress();  print a.binPublicKey65.toHexStr()
