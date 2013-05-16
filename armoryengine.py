@@ -15,7 +15,7 @@
 
 
 # Version Numbers 
-BTCARMORY_VERSION    = (0, 88, 2, 0)  # (Major, Minor, Bugfix, AutoIncrement) 
+BTCARMORY_VERSION    = (0,  1, 0, 0)  # (Major, Minor, Bugfix, AutoIncrement) 
 PYBTCWALLET_VERSION  = (1, 35, 0, 0)  # (Major, Minor, Bugfix, AutoIncrement)
 
 ARMORY_DONATION_ADDR = '1ArmoryXcfq7TnCSuZa9fQjRYwJ4bkRKfv'
@@ -187,7 +187,7 @@ OS_VARIANT       = ''
 USER_HOME_DIR    = ''
 BTC_HOME_DIR     = ''
 ARMORY_HOME_DIR  = ''
-SUBDIR = 'testnet3' if USE_TESTNET else ''
+SUBDIR = 'bitsafedemo' if USE_TESTNET else ''
 if OS_WINDOWS:
    OS_NAME         = 'Windows'
    OS_VARIANT      = platform.win32_ver()
@@ -1020,6 +1020,7 @@ def RightNowUTC():
 try:
    import CppBlockUtils as Cpp
    from CppBlockUtils import KdfRomix, CryptoECDSA, CryptoAES, SecureBinaryData
+   from CppBlockUtils import ExtendedKey, HDWalletCrypto
    LOGINFO('C++ block utilities loaded successfully')
 except:
    LOGCRIT('C++ block utilities not available.')
@@ -2298,6 +2299,7 @@ class PyBtcAddress(object):
       self.walletByteLoc         = -1
       self.chaincode             = SecureBinaryData()
       self.chainIndex            = 0
+      self.pubExtKey             = ExtendedKey()
 
       # Information to be used by C++ to know where to search for transactions
       # in the blockchain (disabled in favor of a better search method)
@@ -2346,6 +2348,39 @@ class PyBtcAddress(object):
       if len(self.addrStr20)!=20:
          raise KeyDataError, 'PyBtcAddress does not have an address string!'
       return self.addrStr20
+
+   #############################################################################
+   def getExtendedPublicKey(self):
+      return self.pubExtKey
+
+   #############################################################################
+   def createFromExtendedPublicKey(self, ekey):
+      pub65 = ekey.getPub()
+      chain = ekey.getChain()
+      newAddr = self.createFromPublicKeyData(pub65)
+      newAddr.chaincode = chain.copy()
+      newAddr.chainIndex = newAddr.getIndex()
+      return newAddr
+
+   #############################################################################
+   def deriveChildPublicKey(self, i):
+      newKey = HDWalletCrypto().ChildKeyDeriv(self.getExtendedPublicKey(), i)
+      newAddr = PyBtcAddress().createFromExtendedPublicKey(newKey)
+
+   #############################################################################
+   #def createFromPublicKeyData(self, publicKey65, chksum=None):
+
+      #assert(publicKey65.getSize()==65)
+      #self.__init__()
+      #self.addrStr20 = publicKey65.getHash160()
+      #self.binPublicKey65 = publicKey65
+      #self.isInitialized = True
+      #self.isLocked = False
+      #self.useEncryption = False
+
+      #if chksum and not verifyChecksum(self.binPublicKey65.toBinStr(), chksum):
+         #raise ChecksumError, "Checksum doesn't match supplied public key!"
+      #return self
 
    #############################################################################
    def touch(self, unixTime=None, blkNum=None):
@@ -2579,7 +2614,7 @@ class PyBtcAddress(object):
       assert(publicKey65.getSize()==65)
       self.__init__()
       self.addrStr20 = publicKey65.getHash160()
-      self.binPublicKey65 = publicKey65
+      self.binPublicKey65 = publicKey65.copy()
       self.isInitialized = True
       self.isLocked = False
       self.useEncryption = False
@@ -6839,7 +6874,7 @@ class PyBtcWallet(object):
       self.chainIndexMap = {}
       self.txAddrMap = {}    # cache for getting tx-labels based on addr search
       if USE_TESTNET:
-         self.addrPoolSize = 10  # this makes debugging so much easier!
+         self.addrPoolSize = 100  # this makes debugging so much easier!
       else:
          self.addrPoolSize = CLI_OPTIONS.keypool
 
@@ -7218,6 +7253,123 @@ class PyBtcWallet(object):
       """
       self.defaultKeyLifetime = lifetimeInSec
 
+   
+   #############################################################################
+   def getChildExtPubFromRoot(self, i):
+      root = self.addrMap['ROOT']
+      ekey = ExtendedKey().CreateFromPublic(root.binPublicKey65, root.chaincode)
+      newKey = HDWalletCrypto().ChildKeyDeriv(ekey, i)
+      newKey.setIndex(i)
+      return newKey
+      #newAddr = PyBtcAddress().createFromExtendedPublicKey(newKey)
+
+   #############################################################################
+   #def createFromExtendedPublicKey(self, ekey):
+      #pub65 = ekey.getPub()
+      #chain = ekey.getChain()
+      #newAddr = self.createFromPublicKeyData(pub65, chain)
+      #newAddr.chainIndex = newAddr.getIndex()
+      #return newAddr
+
+   #############################################################################
+   #def deriveChildPublicKey(self, i):
+      #newKey = HDWalletCrypto().ChildKeyDeriv(self.getExtendedPublicKey(), i)
+      #newAddr = PyBtcAddress().createFromExtendedPublicKey(newKey)
+      
+
+   #############################################################################
+   def createWalletFromMasterPubKey(self, masterHex, \
+                                          isActuallyNew=True, \
+                                          doRegisterWithBDM=True):
+      p0 = masterHex.index('4104') + 4
+      pubkey = SecureBinaryData(hex_to_binary(masterHex[p0:p0+130]))
+      c0 = masterHex.index('1220') + 4
+      chain = SecureBinaryData(hex_to_binary(masterHex[c0:c0+64]))
+      
+      # Create the root address object
+      rootAddr = PyBtcAddress().createFromPublicKeyData( pubkey )
+      rootAddr.markAsRootAddr(chain)
+      self.addrMap['ROOT'] = rootAddr
+
+      ekey = self.getChildExtPubFromRoot(0)
+      firstAddr = PyBtcAddress().createFromPublicKeyData(ekey.getPub())
+      firstAddr.chaincode = ekey.getChain()
+      firstAddr.chainIndex = 0
+      first160  = firstAddr.getAddr160()
+
+      # Update wallet object with the new data
+      # NEW IN WALLET VERSION 1.35:  unique ID is now based on
+      # the first chained address: this guarantees that the unique ID
+      # is based not only on the private key, BUT ALSO THE CHAIN CODE
+      self.useEncryption = False
+      self.addrMap[firstAddr.getAddr160()] = firstAddr
+      self.uniqueIDBin = (ADDRBYTE + firstAddr.getAddr160()[:5])[::-1]
+      self.uniqueIDB58 = binary_to_base58(self.uniqueIDBin)
+      self.labelName  = 'BitSafe Demo Wallet'
+      self.labelDescr = 'We\'ll be luck if this works!'
+      self.lastComputedChainAddr160 = first160
+      self.lastComputedChainIndex  = firstAddr.chainIndex
+      self.highestUsedChainIndex   = firstAddr.chainIndex-1
+      self.wltCreateDate = long(RightNow())
+      self.linearAddr160List = [first160]
+      self.chainIndexMap[firstAddr.chainIndex] = first160
+
+      # We don't have to worry about atomic file operations when
+      # creating the wallet: so we just do it naively here.
+      rnd = SecureBinaryData().GenerateRandom(4).toHexStr()
+      newWalletFilePath = os.path.join(ARMORY_HOME_DIR, 'bitsafe_demo_%s.wallet' % rnd)
+      self.walletPath = newWalletFilePath
+      if not newWalletFilePath:
+         shortName = self.labelName .replace(' ','_')
+         # This was really only needed when we were putting name in filename
+         #for c in ',?;:\'"?/\\=+-|[]{}<>':
+            #shortName = shortName.replace(c,'_')
+         newName = 'armory_%s_.wallet' % self.uniqueIDB58
+         self.walletPath = os.path.join(ARMORY_HOME_DIR, newName)
+
+      LOGINFO('   New wallet will be written to: %s', self.walletPath)
+      newfile = open(self.walletPath, 'wb')
+      fileData = BinaryPacker()
+
+      # packHeader method writes KDF params and root address
+      headerBytes = self.packHeader(fileData)
+
+      # We make sure we have byte locations of the two addresses, to start
+      self.addrMap[first160].walletByteLoc = headerBytes + 21
+
+      fileData.put(BINARY_CHUNK, '\x00' + first160 + firstAddr.serialize())
+
+
+      # Store the current localtime and blocknumber.  Block number is always 
+      # accurate if available, but time may not be exactly right.  Whenever 
+      # basing anything on time, please assume that it is up to one day off!
+      time0,blk0 = getCurrTimeAndBlock() if isActuallyNew else (0,0)
+
+      # Don't forget to sync the C++ wallet object
+      self.cppWallet = Cpp.BtcWallet()
+      self.cppWallet.addAddress_5_(rootAddr.getAddr160(), time0,blk0,time0,blk0)
+      self.cppWallet.addAddress_5_(first160,              time0,blk0,time0,blk0)
+
+      # We might be holding the wallet temporarily and not ready to register it
+      if doRegisterWithBDM:
+         TheBDM.registerWallet(self.cppWallet, isFresh=isActuallyNew) # new wallet
+
+      newfile.write(fileData.getBinaryString())
+      newfile.close()
+
+      walletFileBackup = self.getWalletPath('backup')
+      shutil.copy(self.walletPath, walletFileBackup)
+
+
+      # Let's fill the address pool while we are unlocked
+      # It will get a lot more expensive if we do it on the next unlock
+      if doRegisterWithBDM:
+         self.fillAddressPool(self.addrPoolSize, isActuallyNew=isActuallyNew)
+
+      return self
+
+      
+
    #############################################################################
    def createNewWallet(self, newWalletFilePath=None, \
                              plainRootKey=None, chaincode=None, \
@@ -7433,7 +7585,13 @@ class PyBtcWallet(object):
       if not addr160:
          addr160 = self.lastComputedChainAddr160
 
-      newAddr = self.addrMap[addr160].extendAddressChain(self.kdfKey)
+      
+      newIndex = self.lastComputedChainIndex + 1
+      ekey = self.getChildExtPubFromRoot(newIndex)
+      newAddr = PyBtcAddress().createFromPublicKeyData(ekey.getPub())
+      newAddr.chaincode = ekey.getChain()
+      newAddr.chainIndex = newIndex
+
       new160 = newAddr.getAddr160()
       newDataLoc = self.walletFileSafeUpdate( \
          [[WLT_UPDATE_ADD, WLT_DATATYPE_KEYDATA, new160, newAddr]])

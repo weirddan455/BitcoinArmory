@@ -1150,7 +1150,7 @@ ExtendedKey HDWalletCrypto::ChildKeyDeriv(ExtendedKey const & extKey, uint32_t n
    else
    {
       // Compress the output if the we received compressed input
-      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, extKey.getPub()));
+      newKey = SecureBinaryData(CryptoECDSA().ECMultiplyPoint(I_left, extKey.getPub(), false));
       return ExtendedKey().CreateFromPublic(newKey, I_right, parFinger, idxList);
    }
 }

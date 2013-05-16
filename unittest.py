@@ -12,10 +12,11 @@ import armoryengine
 LE = LITTLEENDIAN
 BE = BIGENDIAN
 
+Test_BitSafe   = True
 
 Test_BasicUtils       = False
 Test_PyBlockUtils     = False
-Test_CppBlockUtils    = True
+Test_CppBlockUtils    = False
 Test_SimpleAddress    = False
 Test_MultiSigTx       = False
 Test_TxSimpleCreate   = False
@@ -37,7 +38,7 @@ Test_URIParse         = False
 Test_BkgdThread       = False
 Test_AsyncBDM         = False
 Test_Timers           = False
-Test_EstBlockchain    = True
+Test_EstBlockchain    = False
 
 Test_SatoshiManager   = False
 
@@ -82,6 +83,26 @@ def printpassorfail(abool):
 
 
 
+################################################################################
+################################################################################
+if Test_BitSafe:
+   print ''
+   print ''
+   print '*** Testing BitSafe Hacked Wallet ***'
+
+   masterPubHex = '0a4104180b25d6eb80500a9b61703ac220828536a535f0834aaad527676800bc1769920f316f4df5bec623941897ab53e25980a6ff4f01b4e34fc3fbe23047b34b03c212209733f9a9416b32f4de6119177c58bc88104d64a467b351754ee227ab3662d69a'
+   wlt = PyBtcWallet().createWalletFromMasterPubKey(masterPubHex)
+   a = wlt.getNextUnusedAddress();  print a.binPublicKey65.toHexStr()
+   a = wlt.getNextUnusedAddress();  print a.binPublicKey65.toHexStr()
+   a = wlt.getNextUnusedAddress();  print a.binPublicKey65.toHexStr()
+   a = wlt.getNextUnusedAddress();  print a.binPublicKey65.toHexStr()
+   alist = wlt.getLinearAddrList()
+   for a in alist:
+      print a.chainIndex, a.binPublicKey65.toHexStr()
+      
+      
+   
+   
 
 
 ################################################################################

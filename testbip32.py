@@ -16,11 +16,45 @@ def CKD(ekey, *args):
    newKey = ekey.copy()
    for a in args:
       newKey = HDWalletCrypto().ChildKeyDeriv(newKey, a)
+   return newKey.copy()
 
-M0 = CKD(M, 0)
-M01a = CKD(M, 0, 1)
-M01b = CKD(M0, 1)
+M0   = CKD(M, 0)
+M00  = CKD(M, 0, 0)
+M00a = CKD(M0,   0)
+M01  = CKD(M, 0, 1)
 
 M0.debugPrint()
-M01a.debugPrint()
-M01b.debugPrint()
+M00.debugPrint()
+M00a.debugPrint()
+
+pmatch1 = M00.getPub().toHexStr()
+pmatch2 = M00a.getPub().toHexStr()
+print pmatch1
+print pmatch2
+print pmatch1==pmatch2
+
+
+
+print ''
+print '*'*80
+print '* M/* chain'
+for i in range(5):
+   print 'M/%d: ' % i, 
+   new = CKD(M, i)
+   print new.getPub().toHexStr()[:40]
+   
+print ''
+print '*'*80
+print '* M/0/* chain'
+for i in range(5):
+   print 'M/0/%d: ' % i, 
+   ekey=CKD(M,0,i)
+   print ekey.getPub().toHexStr()[:20]
+
+print ''
+print '*'*80
+print '* M/0/0/* chain'
+for i in range(5):
+   print 'M/0/0/%d: ' % i, 
+   print CKD(M, 0, 0, i).getPub().toHexStr()[:20]
+

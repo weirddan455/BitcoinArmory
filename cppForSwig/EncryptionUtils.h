@@ -515,6 +515,15 @@ public:
    vector<uint32_t>         getIndicesVect(void) const;
    ExtendedKey              copy(void) const;
 
+   // This is a terrible hack for the bitsafe thing!  Create all root keys,
+   // and manually set their index.  B/c this is only one level deep.
+   void setIndex(uint32_t i) 
+   {
+      list<uint32_t> lst;
+      lst.push_back(i);
+      indicesList_ = lst;
+   }
+
    SecureBinaryData getPubCompressed(void) const;
    SecureBinaryData getPubUncompressed(void) const;
 
