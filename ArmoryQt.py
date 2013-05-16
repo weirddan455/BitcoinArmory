@@ -2165,25 +2165,38 @@ class ArmoryMainWindow(QMainWindow):
       #       the first byte of the pub key).  Then it searches for 1220
       #       to find the chaincode after that.   This is so that I
       #       don't have to actually figure out how these things are serialized
-      outputBin = ''
-      def wrapRequestFunction():
-         msgGetKey = proto.GetMasterPublicKey(algo=1)
-         outputBin = self.bitkey.call(msgGetKey).SerializeToString()
-
-      DlgExecLongProcess(wrapRequestFunction, \
+      binDeviceOut = ''
+      reply = QMessageBox.question(self,'Create New Wallet?', \
+         'Do you want the BitSafe device to create a new wallet?  If you '
+         'click "No", it will simply retrieve the parameters of the wallet '
+         'already in use on the device. <br><br>'
+         'Create new wallet, overwriting the current one?', \
+         QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+      if reply==QMessageBox.Cancel:
+         return
+      elif reply==QMessageBox.Yes:
+         # Create new wallet 
+         pass
+      elif reply==QMessageBox.No:
+         # Just get the existing parameters
+         def wrapRequestFunction():
+            msgGetKey = proto.GetMasterPublicKey(algo=1)
+            binDeviceOut = self.bitkey.call(msgGetKey).SerializeToString()
+         DlgExecLongProcess(wrapRequestFunction, \
                          'Press a button on the device!', self, self).exec_()
       
-      outSize = len(outputBin)
+      outSize = len(binDeviceOut)
+      print outSize
       if outSize < 65+32:
-         dispHex = binary_to_hex(outputBin) if outSize>0 else '<NOTHING>'
-         QMessageBox.warning(self, 'No data received', """
-            Invalid data was received from the device.
-            <br><br> NumBytes: %d <br> 
-            RawResult: %s""" % (outSize, dispHex), QMessageBox.Ok)
+         dispHex = binary_to_hex(binDeviceOut) if outSize>0 else '[NOTHING]'
+         QMessageBox.warning(self, 'No data received', 
+            'Invalid data was received from the device.'
+            '<br><br> NumBytes: %d <br>'
+            'RawResult: %s' % (outSize, dispHex), QMessageBox.Ok)
          return
       
       newWallet = PyBtcWallet.createWalletFromMasterPubKey( \
-                                             binary_to_hex(outputBin), 
+                                             binary_to_hex(binDeviceOut), 
                                              doRegisterWithBDM=False)
       ##########################################################################
       ##########################################################################

@@ -7320,6 +7320,7 @@ class PyBtcWallet(object):
       self.wltCreateDate = long(RightNow())
       self.linearAddr160List = [first160]
       self.chainIndexMap[firstAddr.chainIndex] = first160
+      self.watchingOnly = True
 
       # We don't have to worry about atomic file operations when
       # creating the wallet: so we just do it naively here.
