@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                            //
-//  Copyright (C) 2011-2013, Alan C. Reiner    <alan.reiner@gmail.com>        //
+//  Copyright (C) 2011-2012, Alan C. Reiner    <alan.reiner@gmail.com>        //
 //  Distributed under the GNU Affero General Public License (AGPL v3)         //
 //  See LICENSE or http://www.gnu.org/licenses/agpl.html                      //
 //                                                                            //
@@ -52,8 +52,8 @@
 #define FILE_DOES_NOT_EXIST UINT64_MAX
 
 
-#define TESTNET_MAGIC_BYTES "0b110907"
-#define TESTNET_GENESIS_HASH_HEX    "43497fd7f826957108f4a30fd9cec3aeba79972084e90ead01ea330900000000"
+#define TESTNET_MAGIC_BYTES "fabfb5da"
+#define TESTNET_GENESIS_HASH_HEX    "08b067b31dc139ee8e7a76a4f2cfcca477c4c06e1ef89f4ae308951907000000"
 #define TESTNET_GENESIS_TX_HASH_HEX "3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a"
 
 #define MAINNET_MAGIC_BYTES "f9beb4d9"
@@ -237,6 +237,37 @@ public:
    static BinaryData        BadAddress_;
    static BinaryData        EmptyHash_;
 
+
+   /////////////////////////////////////////////////////////////////////////////
+   static bool systemIsBigEndian(void)
+   {
+      int BIG_ENDIAN_TEST = 1;
+      return ((*(char*)&BIG_ENDIAN_TEST) == 0);
+   }
+   
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData uint32ToBinaryBE(uint32_t n)
+   {
+      BinaryData out( (uint8_t*)&n, 4);
+
+      if(systemIsBigEndian())
+         return out;
+      else
+         return out.copySwapEndian();
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData uint32ToBinaryLE(uint32_t n)
+   {
+      BinaryData out( (uint8_t*)&n, 4);
+
+      if(systemIsBigEndian())
+         return out.copySwapEndian();
+      else
+         return out;
+   }
+
+
    /////////////////////////////////////////////////////////////////////////////
    static uint64_t readVarInt(uint8_t const * strmPtr, uint32_t* lenOutPtr=NULL)
    {
@@ -351,6 +382,8 @@ public:
       }
       return out.str();
    }
+
+
 
 
    /////////////////////////////////////////////////////////////////////////////
@@ -502,6 +535,75 @@ public:
       ripemd160_.CalculateDigest(bd20.getPtr(), strToHash.getPtr(), strToHash.getSize());
       return bd20;
    }
+
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   // 
+   static void getSHA512(uint8_t const * strToHash,
+                         uint32_t        nBytes,
+                         BinaryData &    hashOutput)
+   {
+      static CryptoPP::SHA512 sha512_;
+      if(hashOutput.getSize() != 64)
+         hashOutput.resize(64);
+
+      sha512_.CalculateDigest(hashOutput.getPtr(), strToHash, nBytes);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static void getSHA512_NoSafetyCheck(
+                          uint8_t const * strToHash,
+                          uint32_t        nBytes,
+                          BinaryData &    hashOutput)
+   {
+      static CryptoPP::SHA512 sha512_;
+
+      sha512_.CalculateDigest(hashOutput.getPtr(), strToHash, nBytes);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData getSHA512(uint8_t const * strToHash,
+                               uint32_t        nBytes)
+   {
+      static CryptoPP::SHA512 sha512_;
+
+      BinaryData hashOutput(64);
+      sha512_.CalculateDigest(hashOutput.getPtr(), strToHash, nBytes);
+      return hashOutput;
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static void getSHA512(BinaryData const & strToHash, 
+                         BinaryData &       hashOutput)
+   {
+      getSHA512(strToHash.getPtr(), strToHash.getSize(), hashOutput);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static void getSHA512(BinaryDataRef const & strToHash, 
+                         BinaryData          & hashOutput)
+   {
+      getSHA512(strToHash.getPtr(), strToHash.getSize(), hashOutput);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData getSHA512(BinaryData const & strToHash)
+   {
+      BinaryData hashOutput(64);
+      getSHA512(strToHash.getPtr(), strToHash.getSize(), hashOutput);
+      return hashOutput;
+   }
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   static BinaryData getSHA512(BinaryDataRef const & strToHash)
+   {
+      BinaryData hashOutput(64);
+      getSHA512(strToHash.getPtr(), strToHash.getSize(), hashOutput);
+      return hashOutput;
+   }
+
 
 
    /////////////////////////////////////////////////////////////////////////////
