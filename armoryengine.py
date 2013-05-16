@@ -187,7 +187,7 @@ OS_VARIANT       = ''
 USER_HOME_DIR    = ''
 BTC_HOME_DIR     = ''
 ARMORY_HOME_DIR  = ''
-SUBDIR = 'bitsafedemo'
+SUBDIR = 'testnet3' if USE_TESTNET else ''
 if OS_WINDOWS:
    OS_NAME         = 'Windows'
    OS_VARIANT      = platform.win32_ver()
@@ -6195,6 +6195,10 @@ class PyTxDistProposal(object):
                               [addr4]
                               [addr5]         ]
 
+      self.chainIndexList = [ [i1, i2, i3],
+                              [i4],
+                              [i5]           ]
+
       # Usually only have public keys on multi-sig TxOuts
       self.inPubKeyLists  = [ [pubKey1, pubKey2, pubKey3],
                               ['']
@@ -6237,6 +6241,7 @@ class PyTxDistProposal(object):
       self.signatures    = []
       self.txOutScripts  = []
       self.inAddr20Lists = []
+      self.chainIndexList= []
       self.inPubKeyLists = []
       self.inputValues   = []
       self.numSigsNeeded = []
@@ -6253,6 +6258,7 @@ class PyTxDistProposal(object):
       self.signatures     = []
       self.txOutScripts   = []
       self.inAddr20Lists  = []
+      self.chainIndexList = []
       self.inPubKeyLists  = []
       self.inputValues    = []
       self.numSigsNeeded  = []
@@ -7281,6 +7287,7 @@ class PyBtcWallet(object):
    def createWalletFromMasterPubKey(self, masterHex, \
                                           isActuallyNew=True, \
                                           doRegisterWithBDM=True):
+      # This function eats hex inputs, not sure why I chose to do that...
       p0 = masterHex.index('4104') + 2
       pubkey = SecureBinaryData(hex_to_binary(masterHex[p0:p0+130]))
       c0 = masterHex.index('1220') + 4
@@ -7587,8 +7594,6 @@ class PyBtcWallet(object):
       
       newIndex = self.lastComputedChainIndex + 1
       ekey = self.getChildExtPubFromRoot(newIndex)
-      print ekey.getPub().toHexStr()
-      print ekey.getChain().toHexStr()
       newAddr = PyBtcAddress().createFromPublicKeyData(ekey.getPub())
       newAddr.chaincode = ekey.getChain().copy()
       newAddr.chainIndex = newIndex

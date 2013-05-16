@@ -58,3 +58,4 @@ for i in range(5):
    print 'M/0/0/%d: ' % i, 
    print CKD(M, 0, 0, i).getPub().toHexStr()[:20]
 
+

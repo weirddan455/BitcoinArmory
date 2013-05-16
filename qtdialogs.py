@@ -17,6 +17,10 @@ from armorymodels import *
 from armorycolors import Colors, htmlColor
 import qrc_img_resources
 
+#from bitkeylib.transport_hid import HidTransport
+#from bitkeylib import proto
+#from bitkeylib.client import BitkeyClient
+
 MIN_PASSWD_WIDTH = lambda obj: tightSizeStr(obj, '*'*16)[0]
 
 
@@ -4917,8 +4921,10 @@ class DlgConfirmSend(ArmoryDialog):
       sumStr = coin2str(totalSend, maxZeros=1)
 
       lblMsg = QRichLabel(
-         'You are about to spend <b>%s BTC</b> from wallet "<b>%s</b>" (%s).  You '
-         'specified the following distribution:' % (sumStr, wlt.labelName, wlt.uniqueIDB58))
+         'You are about to ask the BitSafe device to sign a'
+         'transaction for <b>%s BTC</b> from wallet "<b>%s</b>" (%s).  '
+         'You specified the following distribution:' % \
+         (sumStr, wlt.labelName, wlt.uniqueIDB58))
 
 
       recipLbls = []
@@ -4941,13 +4947,10 @@ class DlgConfirmSend(ArmoryDialog):
                         coin2str(totalSend, rJust=True, maxZeros=4)))
       recipLbls[-1].setFont(GETFONT('Fixed'))
 
-      lblLastConfirm = QLabel('Are you sure you want to execute this transaction?')
+      lblLastConfirm = QLabel('Are you sure you want to request a '
+                              'signature from BitSafe for this transaction?')
 
-      if sendNow:
-         self.btnAccept = QPushButton('Send')
-      else:
-         self.btnAccept = QPushButton('Continue')
-         lblLastConfirm.setText('')
+      self.btnAccept = QPushButton('Do it!')
 
 
       # Acknowledge if the user has selected a non-std change location
@@ -4988,13 +4991,6 @@ class DlgConfirmSend(ArmoryDialog):
       frmAll = makeHorizFrame( [ lblInfoImg, frmRight ] )
       
       layout.addWidget(frmAll)
-      #layout.addWidget(lblMsg,               0, 1,   1, 1)
-
-      #layout.addWidget(lblFrm,               1, 1,   1, 1)
-
-      #layout.addWidget(lblLastConfirm,       2, 1,  1, 1)
-      #layout.addWidget(buttonBox,            3, 1,  1, 1)
-      #layout.setSpacing(20)
 
       self.setLayout(layout)
       self.setMinimumWidth(350)
@@ -6541,7 +6537,7 @@ class DlgReviewOfflineTx(ArmoryDialog):
       self.txtTxDP.sizeHint = lambda: QSize(w,h)
       self.txtTxDP.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-      self.btnSign      = QPushButton('Sign')
+      self.btnSign      = QPushButton('Sign with BitSafe!')
       self.btnBroadcast = QPushButton('Broadcast')
       self.btnSave      = QPushButton('Save file...')
       self.btnLoad      = QPushButton('Load file...')
@@ -6550,7 +6546,7 @@ class DlgReviewOfflineTx(ArmoryDialog):
       self.lblCopied    = QRichLabel('')
       self.lblCopied.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
 
-      self.btnSign.setEnabled(False)
+      self.btnSign.setEnabled(True)
       self.btnBroadcast.setEnabled(False)
 
       self.connect(self.txtTxDP, SIGNAL('textChanged()'), self.processTxDP)
@@ -6735,7 +6731,7 @@ class DlgReviewOfflineTx(ArmoryDialog):
             self.lblStatus.setText('<b><font color="red">Unrecognized!</font></b>')
          else:
             self.lblStatus.setText('')
-         self.btnSign.setEnabled(False)
+         self.btnSign.setEnabled(True)
          self.btnBroadcast.setEnabled(False)
          self.btnSave.setEnabled(False)
          self.makeReviewFrame()
@@ -6757,7 +6753,7 @@ class DlgReviewOfflineTx(ArmoryDialog):
          self.btnBroadcast.setEnabled(False)
       else:
          self.lblStatus.setText('<b><font color="green">All Signatures Valid!</font></b>')
-         self.btnSign.setEnabled(False)
+         self.btnSign.setEnabled(True)
          self.btnCopyHex.setEnabled(True)
       
 
@@ -6894,6 +6890,7 @@ class DlgReviewOfflineTx(ArmoryDialog):
 
 
    def signTx(self):
+
       if not self.txdpObj:
          QMessageBox.critical(self, 'Cannot Sign', \
                'This transaction is not relevant to any of your wallets.' 
@@ -6911,13 +6908,13 @@ class DlgReviewOfflineTx(ArmoryDialog):
          return
 
 
-      if self.wlt.watchingOnly:
-         QMessageBox.warning(self, 'No Private Keys!', \
-            'This transaction refers one of your wallets, but that wallet '
-            'is a watching-only wallet.  Therefore, private keys are '
-            'not available to sign this transaction.', \
-             QMessageBox.Ok)
-         return
+      #if self.wlt.watchingOnly:
+         #QMessageBox.warning(self, 'No Private Keys!', \
+            #'This transaction refers one of your wallets, but that wallet '
+            #'is a watching-only wallet.  Therefore, private keys are '
+            #'not available to sign this transaction.', \
+             #QMessageBox.Ok)
+         #return
 
 
       # We should provide the same confirmation dialog here, as we do when 
@@ -6941,33 +6938,57 @@ class DlgReviewOfflineTx(ArmoryDialog):
             rvpairsOther.append( [info[2], info[1]])
 
 
-      if len(rvpairsMine)==0 and len(rvpairsOther)>1:
-         QMessageBox.warning(self, 'Missing Change', \
-            'This transaction has %d recipients, and none of them '
-            'are addresses in this wallet (for receiving change).  '
-            'This can happen if you specified a custom change address '
-            'for this transaction, or sometimes happens solely by '
-            'chance with a multi-recipient transaction.  It could also '
-            'be the result of someone tampering with the transaction. '
-            '<br><br>The transaction is valid and ready to be signed.  Please '
-            'verify the recipient and amounts carefully before '
-            'confirming the transaction on the next screen.' % len(rvpairsOther), \
-            QMessageBox.Ok)
       dlg = DlgConfirmSend(self.wlt, rvpairsOther, theFee, self, self.main)
       if not dlg.exec_():
          return
       
 
 
-      if self.wlt.useEncryption and self.wlt.isLocked:
-         dlg = DlgUnlockWallet(self.wlt, self.parent, self.main, 'Sign Transaction')
-         if not dlg.exec_():
-            QMessageBox.warning(self, 'Wallet is Locked', \
-               'Cannot sign transaction while your wallet is locked!', \
-               QMessageBox.Ok)
-            return
+      ##########################################################################
+      ##########################################################################
+      # TODO:  Call vince's code here.  Do the OTP thing, then send the
+      #        tx for signing
+      #newTxdp = self.wlt.signTxDistProposal(self.txdpObj)
+      #self.main.bitkey.startOTP()
+      dlg = DlgEnterOTPCode(self, self)
+      if not dlg.exec_():
+         return 
 
-      newTxdp = self.wlt.signTxDistProposal(self.txdpObj)
+      self.main.bitkey.sendOTP(str(dlg.edtOTP.text()))
+      if not self.main.bitkey.happy():
+         QMessageBox.warning(self, 'Bad OTP Code', """
+            BitSafe did not like the code you entered.  Or there was 
+            some other problem.  Either way, this operation is being
+            aborted!""", QMessageBox.Ok)
+         return
+
+      # Add chainindex for each input in self.txdpObj, which corresponds
+      # to the "address_n" field in the serializations
+      self.txdpObj.chainIndexList = []
+      for script in self.txdpObj.txOutScripts:
+         # Each entry is actually a list, in case of multisig
+         addr160 = TxOutScriptExtractAddr160(script)
+         address_n = self.wlt.addrMap[addr160].chainIndex
+         self.txdpObj.chainIndexList.append(address_n)
+
+      newTxdp = None
+      def wrapRequestFunction():
+         newTxdp = self.main.bitkey.pleaseAddSignaturesToThis(self.txdpObj)
+
+      DlgExecLongProcess(wrapRequestFunction, \
+           'Finish signing using BitSafe device!', self, self).exec_()
+
+      print 'The resulting txdp returned:'
+      newTxdp.pprint()
+      if newTxdp==None or not newTxdp.checkTxHasEnoughSignatures(True):
+         QMessageBox.critical(self, 'Bad Return Value', \
+            'The txdp did not come back wit enough signatures.',\
+            QMessageBox.Ok)
+         return
+      ##########################################################################
+      ##########################################################################
+
+
       self.wlt.advanceHighestIndex()
       self.txtTxDP.setText(newTxdp.serializeAscii())
       self.txdpObj = newTxdp
@@ -7111,6 +7132,33 @@ class DlgReviewOfflineTx(ArmoryDialog):
       clipb.clear()
       clipb.setText(binary_to_hex(self.txdpObj.prepareFinalTx().serialize()))
       self.lblCopied.setText('<i>Copied!</i>')
+
+
+################################################################################
+class DlgEnterOTPCode(ArmoryDialog):
+   def __init__(self, parent=None, main=None):
+      super(DlgEnterOTPCode, self).__init__(parent, main)
+
+      lblDescr = QRichLabel('<b>Enter OTP displayed on BitSafe</b>', \
+                            hAlign=Qt.AlignHCenter)
+      self.edtOTP = QLineEdit()
+      self.edtOTP.setMaximumWidth(relaxedSizeNChar(self.edtOTP, 10)[0])
+      
+      btnCancel = QPushButton('Cancel')
+      btnAccept = QPushButton('Accept')
+
+      self.connect(btnAccept, SIGNAL('clicked()'), self.accept)
+      self.connect(btnCancel, SIGNAL('clicked()'), self.reject)
+
+      frmEntry   = makeHorizFrame(['Stretch',self.edtOTP,'Stretch'])
+      frmButtons = makeHorizFrame(['Stretch',btnCancel, btnAccept])
+
+      layout = QVBoxLayout()
+      layout.addWidget(lblDescr)
+      layout.addWidget(frmEntry)
+      layout.addWidget(frmButtons)
+      self.setLayout(layout)
+      self.setMinimumWidth(350)
 
 
 ################################################################################

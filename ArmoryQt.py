@@ -40,6 +40,10 @@ from qtdialogs    import *
 from qtdefines    import *
 from armorycolors import Colors, htmlColor, QAPP
 
+#from bitkeylib.transport_hid import HidTransport
+#from bitkeylib import proto
+#from bitkeylib.client import BitkeyClient
+
 import qrc_img_resources
 
 # All the twisted/networking functionality
@@ -59,6 +63,14 @@ class ArmoryMainWindow(QMainWindow):
       super(ArmoryMainWindow, self).__init__(parent)
 
       TimerStart('MainWindowInit')
+
+      ##########################################################################
+      ##########################################################################
+      # TODO:  Call vince's classes - instantiate them
+      #transport = HidTransport('0x04f3:0x0210:00012345', False)
+      #self.bitkey = BitkeyClient(transport)
+      ##########################################################################
+      ##########################################################################
 
       # Load the settings file
       self.settingsPath = CLI_OPTIONS.settingsPath
@@ -2142,6 +2154,41 @@ class ArmoryMainWindow(QMainWindow):
    
    #############################################################################
    def createNewWallet(self, initLabel=''):
+      LOGINFO('BitSafe Demo Wallet: Fetch it from the device!')
+
+      ##########################################################################
+      ##########################################################################
+      # TODO: Call vince's interface, get the master public key & chaincode
+      #       Expected to receive a single hex string, that contains both
+      #       a public key (65B, uncompressed) and a chaincode (32B).
+      #       It finds the pubkey because it's prefixed with 4104 (04 is
+      #       the first byte of the pub key).  Then it searches for 1220
+      #       to find the chaincode after that.   This is so that I
+      #       don't have to actually figure out how these things are serialized
+      outputBin = ''
+      def wrapRequestFunction():
+         msgGetKey = proto.GetMasterPublicKey(algo=1)
+         outputBin = self.bitkey.call(msgGetKey).SerializeToString()
+
+      DlgExecLongProcess(wrapRequestFunction, \
+                         'Press a button on the device!', self, self).exec_()
+      
+      outSize = len(outputBin)
+      if outSize < 65+32:
+         dispHex = binary_to_hex(outputBin) if outSize>0 else '<NOTHING>'
+         QMessageBox.warning(self, 'No data received', """
+            Invalid data was received from the device.
+            <br><br> NumBytes: %d <br> 
+            RawResult: %s""" % (outSize, dispHex), QMessageBox.Ok)
+         return
+      
+      newWallet = PyBtcWallet.createWalletFromMasterPubKey( \
+                                             binary_to_hex(outputBin), 
+                                             doRegisterWithBDM=False)
+      ##########################################################################
+      ##########################################################################
+
+      """
       LOGINFO('createNewWallet')
       dlg = DlgNewWallet(self, self, initLabel=initLabel)
       if dlg.exec_():
@@ -2182,11 +2229,9 @@ class ArmoryMainWindow(QMainWindow):
                                            shortLabel=name, \
                                            longLabel=descr, \
                                            doRegisterWithBDM=False)
+      """
 
 
-      # And we must unlock it before the first fillAddressPool call
-      if newWallet.useEncryption:
-         newWallet.unlock(securePassphrase=passwd)
 
       # We always want to fill the address pool, right away.  
       fillpool = lambda: newWallet.fillAddressPool(doRegister=False)
@@ -2206,10 +2251,6 @@ class ArmoryMainWindow(QMainWindow):
       else:
          self.newWalletList.append([newWallet, True])
       
-      # Prompt user to print paper backup if they requested it.
-      if dlg.chkPrintPaper.isChecked():
-         dlg = DlgPaperBackup(newWallet, self, self)
-         dlg.exec_()
 
 
 
