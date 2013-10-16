@@ -418,15 +418,10 @@ class DlgGenericGetPassword(ArmoryDialog):
       self.setWindowIcon(QIcon(self.main.iconfile))
    
 
-################################################################################
-class DlgNewWallet(ArmoryDialog):
+class NewWalletLayout(QGridLayout):
 
-   def __init__(self, parent=None, main=None, initLabel=''):
-      super(DlgNewWallet, self).__init__(parent, main)
-
-
-      self.selectedImport = False
-
+   def __init__(self, mainScreen = None, initLabel=''):
+      super(NewWalletLayout, self).__init__()
       # Options for creating a new wallet
       lblDlgDescr = QLabel('Create a new wallet for managing your funds.\n'
                            'The name and description can be changed at any time.')
@@ -458,7 +453,7 @@ class DlgNewWallet(ArmoryDialog):
                   'for someone to guess your passphrase.  This is used for all '
                   'encrypted wallets, but the default parameters can be changed below.\n')
       lblComputeDescr.setWordWrap(True)
-      timeDescrTip = self.main.createToolTipWidget( \
+      timeDescrTip = mainScreen.createToolTipWidget( \
                   'This is the amount of time it will take for your computer '
                   'to unlock your wallet after you enter your passphrase. '
                   '(the actual time used will be less than the specified '
@@ -470,7 +465,7 @@ class DlgNewWallet(ArmoryDialog):
       self.edtComputeTime.setText('250 ms')
       self.edtComputeTime.setMaxLength(12)
       lblComputeTime = QLabel('Target compute &time (s, ms):')
-      memDescrTip = self.main.createToolTipWidget( \
+      memDescrTip = mainScreen.createToolTipWidget( \
                   'This is the <b>maximum</b> memory that will be '
                   'used as part of the encryption process.  The actual value used '
                   'may be lower, depending on your system\'s speed.  If a '
@@ -510,7 +505,7 @@ class DlgNewWallet(ArmoryDialog):
 
       self.chkUseCrypto  = QCheckBox("Use wallet &encryption")
       self.chkUseCrypto.setChecked(True)
-      usecryptoTooltip = self.main.createToolTipWidget(
+      usecryptoTooltip = mainScreen.createToolTipWidget(
                   'Encryption prevents anyone who accesses your computer '
                   'or wallet file from being able to spend your money, as  '
                   'long as they do not have the passphrase.'
@@ -521,7 +516,7 @@ class DlgNewWallet(ArmoryDialog):
       # For a new wallet, the user may want to print out a paper backup
       self.chkPrintPaper = QCheckBox("Print a paper-backup of this wallet")
       self.chkPrintPaper.setChecked(True)
-      paperBackupTooltip = self.main.createToolTipWidget(
+      paperBackupTooltip = mainScreen.createToolTipWidget(
                   'A paper-backup allows you to recover your wallet/funds even '
                   'if you lose your original wallet file, any time in the future. '
                   'Because Armory uses "deterministic wallets," '
@@ -536,10 +531,38 @@ class DlgNewWallet(ArmoryDialog):
       self.btnCancel    = QPushButton("Cancel")
       self.btnAdvCrypto = QPushButton("Adv. Encrypt Options>>>")
       self.btnAdvCrypto.setCheckable(True)
+ 
+      
+      self.addWidget(lblDlgDescr,        1, 0, 1, 2)
+      self.addWidget(lblName,            2, 0, 1, 1)
+      self.addWidget(self.edtName,       2, 1, 1, 2)
+      self.addWidget(lblDescr,           3, 0, 1, 2)
+      self.addWidget(self.edtDescr,      3, 1, 2, 2)
+      self.addWidget(self.chkUseCrypto,  5, 0, 1, 1)
+      self.addWidget(usecryptoTooltip,   5, 1, 1, 1)
+      self.addWidget(self.chkPrintPaper, 6, 0, 1, 1)
+      self.addWidget(paperBackupTooltip, 6, 1, 1, 1)
+      self.addWidget(self.cryptoFrame,   8, 0, 3, 3)
+   
+
+      self.setVerticalSpacing(5)
+      self.setSizeConstraint(QLayout.SetFixedSize)
+
+      self.connect(self.chkUseCrypto, SIGNAL("clicked()"), \
+                   self.cryptoFrame,  SLOT("setEnabled(bool)"))
+
+################################################################################
+class DlgNewWallet(ArmoryDialog):
+
+   def __init__(self, parent=None, main=None, initLabel=''):
+      super(DlgNewWallet, self).__init__(parent, main)
+      self.newWalletLayout = NewWalletLayout(main, initLabel)
       self.btnbox = QDialogButtonBox()
       self.btnbox.addButton(self.btnAdvCrypto, QDialogButtonBox.ActionRole)
       self.btnbox.addButton(self.btnCancel,    QDialogButtonBox.RejectRole)
       self.btnbox.addButton(self.btnAccept,    QDialogButtonBox.AcceptRole)
+      
+      self.newWalletLayout.addWidget(self.btnbox,       11, 0, 1, 2)
 
       self.connect(self.btnAdvCrypto, SIGNAL('toggled(bool)'), \
                    self.cryptoFrame,  SLOT('setVisible(bool)'))
@@ -552,33 +575,10 @@ class DlgNewWallet(ArmoryDialog):
       self.btnImportWlt = QPushButton("Import wallet...")
       self.connect( self.btnImportWlt, SIGNAL("clicked()"), \
                     self.importButtonClicked)
+      self.selectedImport = False
       
-      masterLayout = QGridLayout()
-      masterLayout.addWidget(lblDlgDescr,        1, 0, 1, 2)
-      #masterLayout.addWidget(self.btnImportWlt,  1, 2, 1, 1)
-      masterLayout.addWidget(lblName,            2, 0, 1, 1)
-      masterLayout.addWidget(self.edtName,       2, 1, 1, 2)
-      masterLayout.addWidget(lblDescr,           3, 0, 1, 2)
-      masterLayout.addWidget(self.edtDescr,      3, 1, 2, 2)
-      masterLayout.addWidget(self.chkUseCrypto,  5, 0, 1, 1)
-      masterLayout.addWidget(usecryptoTooltip,   5, 1, 1, 1)
-      masterLayout.addWidget(self.chkPrintPaper, 6, 0, 1, 1)
-      masterLayout.addWidget(paperBackupTooltip, 6, 1, 1, 1)
-      masterLayout.addWidget(self.cryptoFrame,   8, 0, 3, 3)
-   
-      masterLayout.addWidget(self.btnbox,       11, 0, 1, 2)
-
-      masterLayout.setVerticalSpacing(5)
-     
-      self.setLayout(masterLayout)
-
-      self.layout().setSizeConstraint(QLayout.SetFixedSize)
-
-      self.connect(self.chkUseCrypto, SIGNAL("clicked()"), \
-                   self.cryptoFrame,  SLOT("setEnabled(bool)"))
-
       self.setWindowTitle('Create Armory wallet')
-      self.setWindowIcon(QIcon( self.main.iconfile))
+      self.setWindowIcon(QIcon( mainScreen.iconfile))
 
 
 
@@ -650,8 +650,18 @@ class DlgNewWallet(ArmoryDialog):
           ARMORY_HOME_DIR, 'Wallet files (*.wallet);; All files (*)') 
       if self.importFile:
          self.accept()
-      
 
+   def getWalletName(self):
+      return str(self.newWalletLayout.edtName.text())
+   
+   def getDescription(self):
+      return str(self.newWalletLayout.edtDescr.toPlainText())
+   
+   def getKdfSec(self):
+      return self.newWalletLayout.kdfSec
+   
+   def getKdfBytes(self):
+      return self.newWalletLayout.kdfBytes
 
 
 ################################################################################
@@ -747,10 +757,6 @@ class DlgChangePassphrase(ArmoryDialog):
       p2 = self.edtPasswd2.text()
       goodColor = htmlColor('TextGreen')
       badColor  = htmlColor('TextRed')
-      if not isASCII(unicode(p1)) or \
-         not isASCII(unicode(p2)):
-         self.lblMatches.setText('<font color=%s><b>Passphrase is non-ASCII!</b></font>' % badColor)
-         return False
       if not p1==p2:
          self.lblMatches.setText('<font color=%s><b>Passphrases do not match!</b></font>' % badColor)
          return False
@@ -952,6 +958,7 @@ class DlgWalletDetails(ArmoryDialog):
       lbtnForkWlt = QLabelButton('Create Watching-Only Copy')
       lbtnBackups = QLabelButton('<b>Backup This Wallet</b>')
       lbtnRemove  = QLabelButton('Delete/Remove Wallet')
+      lbtnRecover  = QLabelButton('Recover Password Wallet')
 
       #LOGERROR('remove me!')
       #fnfrag = lambda: DlgFragBackup(self, self.main, self.wlt).exec_()
@@ -965,6 +972,7 @@ class DlgWalletDetails(ArmoryDialog):
       self.connect(lbtnImportA, SIGNAL('clicked()'), self.execImportAddress)
       self.connect(lbtnDeleteA, SIGNAL('clicked()'), self.execDeleteAddress)
       self.connect(lbtnForkWlt, SIGNAL('clicked()'), self.forkOnlineWallet)
+      self.connect(lbtnRecover, SIGNAL('clicked()'), self.recoverPwd)
 
       lbtnSendBtc.setToolTip('<u></u>Send bitcoins to other users, or transfer '
                              'between wallets')
@@ -992,6 +1000,8 @@ class DlgWalletDetails(ArmoryDialog):
       lbtnRemove.setToolTip('<u></u>Permanently delete this wallet, or just delete '
                             'the private keys to convert it to a watching-only '
                             'wallet.')
+      lbtnRecover.setToolTip('<u></u>Attempt to recover a lost password using '
+                            'details that you remember.')
       if not self.wlt.watchingOnly:
          lbtnChangeCrypto.setToolTip('<u></u>Add/Remove/Change wallet encryption settings.')
 
@@ -1017,6 +1027,7 @@ class DlgWalletDetails(ArmoryDialog):
       if hasPriv:           optLayout.addWidget(lbtnBackups)
       if hasPriv and adv:   optLayout.addWidget(lbtnForkWlt)
       if True:              optLayout.addWidget(lbtnRemove)
+      if True:              optLayout.addWidget(lbtnRecover)
 
       if hasPriv and adv:  optLayout.addWidget(createVBoxSeparator())
 
@@ -1513,7 +1524,10 @@ class DlgWalletDetails(ArmoryDialog):
       self.wlt.forkOnlineWallet(saveLoc, self.wlt.labelName, \
                              '(Watching-Only) ' + self.wlt.labelDescr)
    
-         
+      
+   def recoverPwd(self):
+      passwordFinder = PasswordFinder(wallet = self.wlt)
+            
          
 
 
