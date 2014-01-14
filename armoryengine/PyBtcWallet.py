@@ -1511,15 +1511,20 @@ class PyBtcWallet(object):
       oldKdfKey = None
       if oldUsedEncryption:
          if self.isLocked:
-            if DlgPrg is not None: DlgPrg.Kill()            
-            raise WalletLockError, 'Must unlock wallet to change passphrase'
+            if DlgPrg is not None: 
+               DlgPrg.Raise(WalletLockError, 'Must unlock wallet to change passphrase')
+               return
+            else:            
+               raise WalletLockError, 'Must unlock wallet to change passphrase'
          else:
             oldKdfKey = self.kdfKey.copy()
 
 
       if newUsesEncryption and not self.kdf:
-         if DlgPrg is not None: DlgPrg.Kill()
-         raise EncryptionError, 'KDF must be setup before encrypting wallet'
+         if DlgPrg is not None: 
+            DlgPrg.Kill(EncryptionError, 'KDF must be setup before encrypting wallet')
+         else:
+            raise EncryptionError, 'KDF must be setup before encrypting wallet'
 
       # Prep the file-update list with extras passed in as argument
       walletUpdateInfo = list(extraFileUpdates)
@@ -2653,8 +2658,11 @@ class PyBtcWallet(object):
          from qtdialogs import DlgProgress      
          dlgprg = DlgProgress(self.mainWnd, self.mainWnd, HBar=len(self.addrMap), Title='Unlocking Wallet')   
          
+         #try:
          self.unlock_(secureKdfOutput, securePassphrase, tempKeyLifetime, dlgPrg=dlgprg, async=True)
          dlgprg.spawn_()
+         #except:
+          #  raise PassphraseError
       else:
          self.unlock_(secureKdfOutput, securePassphrase, tempKeyLifetime)
 
@@ -2672,20 +2680,33 @@ class PyBtcWallet(object):
       """
       
       if dlgPrg is None:
+         from time import sleep
+         while dlgPrg.status == 1:
+            sleep(0.01)
          LOGDEBUG('Attempting to unlock wallet: %s', self.uniqueIDB58)
          if not secureKdfOutput and not securePassphrase:
-            raise PassphraseError, "No passphrase/key provided to unlock wallet!"
+            if dlgPrg is not None: 
+               dlgPrg.Raise(PassphraseError, "No passphrase/key provided to unlock wallet!")
+               return
+            else:
+               raise PassphraseError, "No passphrase/key provided to unlock wallet!"
 
       if not secureKdfOutput:
          if not self.kdf:
-            if dlgPrg is not None: dlgPrg.Kill()
-            raise EncryptionError, 'How do we have a locked wallet w/o KDF???'
+            if dlgPrg is not None: 
+               dlgPrg.Raise(EncryptionError, 'How do we have a locked wallet w/o KDF???')
+               return
+            else:
+               raise EncryptionError, 'How do we have a locked wallet w/o KDF???'
          secureKdfOutput = self.kdf.DeriveKey(securePassphrase)
 
 
       if not self.verifyEncryptionKey(secureKdfOutput):
-         if dlgPrg is not None: dlgPrg.Kill()
-         raise PassphraseError, "Incorrect passphrase for wallet"
+         if dlgPrg is not None: 
+            dlgPrg.Raise(PassphraseError, "Incorrect passphrase for wallet")
+            return
+         else:
+            raise PassphraseError, "Incorrect passphrase for wallet"
 
       # For now, I assume that all keys have the same passphrase and all
       # unlocked successfully at the same time.
@@ -2732,9 +2753,8 @@ class PyBtcWallet(object):
                                                 addrObj.serialize()]])
 
       self.isLocked = False
-      if dlgPrg is not None: dlgPrg.Kill()
       LOGDEBUG('Unlock succeeded: %s', self.uniqueIDB58)
-
+      if dlgPrg is not None: dlgPrg.Kill()
 
    #############################################################################
    def lock(self, GUI=True):
@@ -2810,11 +2830,16 @@ class PyBtcWallet(object):
             self.kdfKey = None
          self.isLocked = True
       except WalletLockError:
-         if dlgPrg is not None: dlgPrg.Kill()
          LOGERROR('Locking wallet requires encryption key.  This error')
          LOGERROR('Usually occurs on newly-encrypted wallets that have')
          LOGERROR('never been encrypted before.')
-         raise WalletLockError, 'Unlock with passphrase before locking again'
+         
+         if dlgPrg is not None: 
+            dlgPrg.Raise(WalletLockError, 'Unlock with passphrase before locking again')
+            return
+         else:
+
+            raise WalletLockError, 'Unlock with passphrase before locking again'
       LOGDEBUG('Wallet locked: %s', self.uniqueIDB58)
       
       if dlgPrg is not None: dlgPrg.Kill()

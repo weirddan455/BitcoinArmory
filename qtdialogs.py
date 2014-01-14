@@ -290,9 +290,9 @@ class DlgUnlockWallet(ArmoryDialog):
          self.wlt.unlock(securePassphrase=self.securePassphrase)
 
          if self.returnPassphrase == False: 
-			self.edtPasswd.setText('')
+            self.edtPasswd.setText('')
          else: 
-			self.wlt.lock() #if we are trying to recover the plain passphrase, make sure the wallet is locked
+            self.wlt.lock() #if we are trying to recover the plain passphrase, make sure the wallet is locked
 
          self.securePassphrase.destroy()
          self.accept()
@@ -13899,6 +13899,8 @@ class DlgProgress(ArmoryDialog):
       self.HBar = HBar
       self.Title = Title
       self.TProgress = None
+      self.the_except = None
+      self.except_msg = None
 
       self.btnStop = None
 
@@ -13960,23 +13962,32 @@ class DlgProgress(ArmoryDialog):
 
    def Kill(self):
       if self.main: self.emit(SIGNAL('Exit'))
+      
+   def Raise(self, the_except, msg=None):
+      self.the_except = the_except
+      self.except_msg = msg
+      self.Kill()
+      #if self.main: self.emit(SIGNAL('Raise'), the_except, msg)
 
    def Exit(self):
       self.running = 0
       self.done(0)
-
+   
    def spawn_(self):
-      if self.main is not None:
+      if self.main is not None:            
          self.status = 1
          self.main.emit(SIGNAL('spawnTrigger'), self)
-
+   
          from time import sleep
          while self.status == 1:
             sleep(0.01)
-
+   
          self.thread_lock.acquire()
          self.thread_lock.release()
 
+         if self.the_except:
+            raise self.the_except, self.except_msg
+         
    def reject(self):
       return
 
@@ -13991,7 +14002,7 @@ class DlgProgress(ArmoryDialog):
 
       self.connect(self, SIGNAL('Update'), self.UpdateDlg)
       self.connect(self, SIGNAL('PromptPassphrase'), self.PromptPassphrase)
-      self.connect(self, SIGNAL('Exit'), self.Exit)
+      self.connect(self, SIGNAL('Exit'), self.Exit)   
 
       layoutMgmt = QVBoxLayout()
       self.lblDesc = QLabel('')
