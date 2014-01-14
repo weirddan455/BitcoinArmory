@@ -2658,11 +2658,9 @@ class PyBtcWallet(object):
          from qtdialogs import DlgProgress      
          dlgprg = DlgProgress(self.mainWnd, self.mainWnd, HBar=len(self.addrMap), Title='Unlocking Wallet')   
          
-         #try:
          self.unlock_(secureKdfOutput, securePassphrase, tempKeyLifetime, dlgPrg=dlgprg, async=True)
          dlgprg.spawn_()
-         #except:
-          #  raise PassphraseError
+         
       else:
          self.unlock_(secureKdfOutput, securePassphrase, tempKeyLifetime)
 
