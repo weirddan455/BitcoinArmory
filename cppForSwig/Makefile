@@ -17,19 +17,9 @@ PYVER 		 += `python -c 'import sys; print str(sys.version_info[0]) + "." + str(s
 
 UNAME := $(shell uname)
 
-ifeq ($(UNAME), Darwin)
-   # This configuration assumes you have setup your 10.X.X system like
-   # Red Emerald in this thread: 
-   #    https://bitcointalk.org/index.php?topic=73648.msg976015#msg976015
-	# The makefile updates he shows are already tied into this if/else branch
-   SWIG_INC     += -I"/usr/include/python$(PYVER)"
-   STATICPYTHON +=   "/usr/lib/python$(PYVER)/config/libpython$(PYVER).a"
-else
-   SWIG_INC     += -I"$(DEPSDIR)/include/python$(PYVER)"
-   STATICPYTHON +=   "$(DEPSDIR)/lib/libpython$(PYVER).a"
+SWIG_INC     += -I"$(DEPSDIR)/include/python$(PYVER)"
+STATICPYTHON +=   "$(DEPSDIR)/lib/python2.7/config-x86_64-linux-gnu/libpython2.7.a"
 
-
-endif
 
 
 #**************************************************************************

@@ -735,7 +735,10 @@ SecureBinaryData CryptoECDSA::ComputeChainedPrivateKey(
 // Deterministically generate new public key using a chaincode
 SecureBinaryData CryptoECDSA::ComputeChainedPublicKey(
                                 SecureBinaryData const & binPubKey,
-                                SecureBinaryData const & chainCode)
+                                SecureBinaryData const & chainCode,
+                                SecureBinaryData * pubKeyHashOut,
+                                SecureBinaryData * multiplierOut)
+                              
 {
    if(CRYPTO_DEBUG)
    {
@@ -758,6 +761,10 @@ SecureBinaryData CryptoECDSA::ComputeChainedPublicKey(
                            *(uint32_t*)( chainMod.getPtr()+offset) ^ 
                            *(uint32_t*)(chainOrig.getPtr()+offset);
    }
+
+   // Added outputs for logging purposes
+   pubKeyHashOut->copyFrom(chainMod);
+   multiplierOut->copyFrom(chainXor);
 
    // Parse the chaincode as a big-endian integer
    CryptoPP::Integer chaincode;

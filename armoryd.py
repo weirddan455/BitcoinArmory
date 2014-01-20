@@ -637,7 +637,6 @@ class Armory_Daemon(object):
 
    #############################################################################
    def __init__(self):
-
       # Check if armoryd is already running, bail if it is
       self.checkForAlreadyRunning()
 
@@ -664,6 +663,7 @@ class Armory_Daemon(object):
       self.newTxFunctions = []
       self.newBlockFunctions = []
       self.heartbeatFunctions = []
+      self.keyTests = 0
 
       # The only argument that armoryd.py takes is the wallet to serve
       if len(CLI_ARGS)==0:
@@ -698,6 +698,67 @@ class Armory_Daemon(object):
       realmName = "Armory JSON-RPC App"
       wrapper = wrapResource(resource, [checker], realmName=realmName)
       return wrapper
+
+   #############################################################################
+   def testKeyGen(self, keyfile='keydata.txt', nCompute=100, injectErr=False):
+      prevPK, prevChn, correctPK, storedPK = None, None, None, None
+      with open(keyfile,'r') as f:
+         keydata = ast.literal_eval(f.read())
+         prevPK  = SecureBinaryData(hex_to_binary(keydata['prevPubkey']))
+         prevChn = SecureBinaryData(hex_to_binary(keydata['prevChain']))
+         correctPK = SecureBinaryData(hex_to_binary(keydata['correctPub']))
+         storedPK  = SecureBinaryData(hex_to_binary(keydata['storedPub']))
+
+      pkhash  = SecureBinaryData()
+      multout = SecureBinaryData()
+
+      def logtext(s):
+         LOGINFO(s)
+         with open('CORRUPTION_LOG.txt','a') as f:
+            f.write(s + '\n')
+
+      def logtextcritical(s):
+         LOGERROR(s)
+         with open('CORRUPTION_LOG.txt','a') as f:
+            f.write(s + '\n')
+         with open('FOUND_KEYMATCH.txt','a') as f:
+            f.write(s + '\n')
+
+      logtext('Computing public key %d times' % nCompute)
+      for i in range(nCompute):
+         newPK = CryptoECDSA().ComputeChainedPublicKey(prevPK, prevChn, pkhash, multout)
+
+         if self.keyTests % 100000 == 0 and injectErr:
+            logtext('*'*80)
+            logtext('RANDOM ERROR INJECTION (TESTING)')
+            logtext('*'*80)
+            if self.keyTests % 200000 == 0:
+               newPK = SecureBinaryData().GenerateRandom(65)
+            else:
+               logtextcritical('*'*80)
+               logtextcritical('RANDOM ERROR INJECTION (TESTING)')
+               logtextcritical('*'*80)
+               newPK = storedPK
+
+         self.keyTests +=1
+
+         if not newPK==correctPK:
+            logtext('Incorrect key computed after %d keys computed!' % self.keyTests)
+            logtext('PrevPubKey: ' + prevPK.toHexStr())
+            logtext('Chaincode:  ' + prevChn.toHexStr())
+            logtext('ComputedPK: ' + newPK.toHexStr())
+            logtext('ExpectedPK: ' + correctPK.toHexStr())
+            logtext('PubKeyHash: ' + pkhash.toHexStr())
+            logtext('Multiplier: ' + multout.toHexStr())
+            if newPK==storedPK:
+               logtextcritical('***KEY MATCH***')
+               logtextcritical('StoredKey:  ' + storedPK.toHexStr())
+               logtextcritical('ComputedPK: ' + newPK.toHexStr())
+               logtextcritical('ExpectedPK: ' + correctPK.toHexStr())
+               logtextcritical('PubKeyHash: ' + pkhash.toHexStr())
+               logtextcritical('Multiplier: ' + multout.toHexStr())
+
+      
 
    #############################################################################
    def start(self):
@@ -845,6 +906,8 @@ class Armory_Daemon(object):
       run every 2 seconds, or whatever is specified in the nextBeatSec
       argument.
       """
+      self.testKeyGen(injectErr=False)
+
       # Check for new blocks in the blk000X.dat file
       if TheBDM.getBDMState()=='BlockchainReady':
 

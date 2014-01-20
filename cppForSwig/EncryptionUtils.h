@@ -402,7 +402,9 @@ public:
    /////////////////////////////////////////////////////////////////////////////
    // Deterministically generate new private key using a chaincode
    SecureBinaryData ComputeChainedPublicKey(SecureBinaryData const & binPubKey,
-                                            SecureBinaryData const & chainCode);
+                                            SecureBinaryData const & chainCode,
+                                            SecureBinaryData * pubKeyHashOut=NULL,
+                                            SecureBinaryData * multiplierOut=NULL);
 
 
    /////////////////////////////////////////////////////////////////////////////
