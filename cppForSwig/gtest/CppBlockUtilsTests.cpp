@@ -7183,11 +7183,13 @@ protected:
    /////////////////////////////////////////////////////////////////////////////
    virtual void SetUp(void) 
    {
-      if(1) {
+      if(1)    
+      {
          verPub          = 76067358; // 0x0488B21E
          verPri          = 76066276; // 0x0488ADE4
       }
-      else {
+      else 
+      {
          verPub          = 70617039; // 0x043587CF
          verPri          = 70615956; // 0x04358394
       }
@@ -7336,6 +7338,7 @@ TEST_F(TestExtendedKey, CheckPublicCopies)
 }
 
 
+/////////////////////////////////////////////////////////////////////////////
 class TestHDWalletCryptoSeed : public ::testing::Test
 {
 protected:
@@ -7371,8 +7374,9 @@ protected:
    SecureBinaryData seedCompPubKey2;
 };
 
-// Build a seed (key + chain code), and confirm the values are what we expect.
+
 ////////////////////////////////////////////////////////////////////////////////
+// Build a seed (key + chain code), and confirm the values are what we expect.
 TEST_F(TestHDWalletCryptoSeed, BuildSeed)
 {
    HDWalletCryptoSeed testSeed1  = HDWalletCryptoSeed(seedInput1);
@@ -7394,11 +7398,13 @@ protected:
    /////////////////////////////////////////////////////////////////////////////
    virtual void SetUp(void) 
    {
-      if(1) {
+      if(1) 
+      {
          verPub          = 76067358; // 0x0488B21E
          verPri          = 76066276; // 0x0488ADE4
       }
-      else {
+      else 
+      {
          verPub          = 70617039; // 0x043587CF
          verPri          = 70615956; // 0x04358394
       }
@@ -7834,7 +7840,8 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
    ExtendedKey parentKey1(seedKey1, seedCC1);
    unsigned int s1 = 0;
    for(vector<uint32_t>::iterator it1 = set1ChildNum.begin();
-       it1 != set1ChildNum.end(); ++it1) {
+       it1 != set1ChildNum.end(); ++it1) 
+   {
       ExtendedKey childKey1 = HDWalletCrypto().childKeyDeriv(parentKey1, *it1);
       SecureBinaryData retKey1       = childKey1.getKey();
       SecureBinaryData retPubKey1    = childKey1.getPub();
@@ -7874,7 +7881,8 @@ TEST_F(TestHDWalletCrypto, BIP32TestVectorSuite)
    ExtendedKey parentKey2(seedKey2, seedCC2);
    unsigned int s2 = 0;
    for(vector<uint32_t>::iterator it2 = set2ChildNum.begin();
-       it2 != set2ChildNum.end(); ++it2) {
+       it2 != set2ChildNum.end(); ++it2) 
+   {
       ExtendedKey childKey2 = HDWalletCrypto().childKeyDeriv(parentKey2, *it2);
       SecureBinaryData retKey2       = childKey2.getKey();
       SecureBinaryData retPubKey2    = childKey2.getPub();
