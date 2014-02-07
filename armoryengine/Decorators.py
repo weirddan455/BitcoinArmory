@@ -58,6 +58,43 @@ def EmailOutput(send_from, password, send_to, subject='Armory Output'):
 
 
 
+# Enforce Argument Types -- Decorator factory (for a decorator with args)
+def VerifyArgTypes(**typemap):
+
+   import inspect
+   # We need to return a function that has;
+   #     Input:   function + args
+   #     Output:  wrapped function that checks argument list for types
+   
+   def decorator(func):
+
+      aspec = inspect.getargspec(func)
+      for key,val in typemap.iteritems():
+         if not key in aspec.args:
+            raise TypeError('Function "%s" has no argument "%s"'% (func.__name__,key))
+
+      def wrappedFunc(*args, **kwargs):
+         for i,arg in enumerate(args):
+            if i>=len(aspec.args):
+               continue
+            aname = aspec.args[i] 
+            if aname in typemap and not isinstance(arg, typemap[aname]):
+               errStr = 'Argument "%s" is %s (expected %s)' % (aname, str(type(aname)), str(typemap[aname]))
+               raise TypeError(errStr)
+
+         for aname,val in kwargs.iteritems():
+            if aname in typemap and not isinstance(val, typemap[aname]):
+               errStr = 'Argument "%s" is %s (expected %s)' % (aname, str(type(aname)), str(typemap[aname]))
+               raise TypeError(errStr)
+
+         return func(*args, **kwargs)
+
+      return wrappedFunc
+
+   return decorator
+               
+
+         
 
 
 
