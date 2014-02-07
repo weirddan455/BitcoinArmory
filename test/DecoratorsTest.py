@@ -206,6 +206,87 @@ class VerifyArgTypeTest(unittest.TestCase):
       self.assertRaises(TypeError, failingTest7)
 
 
+   #############################################################################
+   def testTupleTypes(self):
+
+      @VerifyArgTypes(a=int, c=float, b=(int,str))
+      def testFunc(a,b,c, *args, **kwargs):
+         return a+int(b)+c+len(kwargs)+len(args)
+
+      self.assertEqual(testFunc(2, 9, 3.2), 14.2)
+      self.assertEqual(testFunc(2, '9', 3.2), 14.2)
+      self.assertEqual(testFunc(2, '9', 3.2, 'a'), 15.2)
+      self.assertEqual(testFunc(2, '9', 3.2, 'a', extra=5), 16.2)
+
+      def failingTest1():
+         testFunc(2,   1.1, 3.2)
+
+      def failingTest2():
+         testFunc(2,   None, 3.2, d=99)
+
+      def failingTest3():
+         testFunc(1.1, 0, 3.2, d=99, e=99)
+
+      self.assertRaises(TypeError, failingTest1)
+      self.assertRaises(TypeError, failingTest2)
+      self.assertRaises(TypeError, failingTest3)
+
+
+   #############################################################################
+   def testListTypes(self):
+
+      # Making sure we can pass a list as well as a tuple (isinstance only 
+      # accepts tuples, but VerifyArgTypes will take a list and convert)
+      @VerifyArgTypes(a=int, c=float, b=[int,str])
+      def testFunc(a,b,c, *args, **kwargs):
+         return a+int(b)+c+len(kwargs)+len(args)
+
+      self.assertEqual(testFunc(2, 9, 3.2), 14.2)
+      self.assertEqual(testFunc(2, '9', 3.2), 14.2)
+      self.assertEqual(testFunc(2, '9', 3.2, 'a'), 15.2)
+      self.assertEqual(testFunc(2, '9', 3.2, 'a', extra=5), 16.2)
+
+      def failingTest1():
+         testFunc(2,   1.1, 3.2)
+
+      def failingTest2():
+         testFunc(2,   None, 3.2, d=99)
+
+      def failingTest3():
+         testFunc(1.1, 0, 3.2, d=99, e=99)
+
+
+      self.assertRaises(TypeError, failingTest1)
+      self.assertRaises(TypeError, failingTest2)
+      self.assertRaises(TypeError, failingTest3)
+
+   #############################################################################
+   def testNoneTypes(self):
+
+      # Making sure we can pass a list as well as a tuple (isinstance only 
+      # accepts tuples, but VerifyArgTypes will take a list and convert)
+      @VerifyArgTypes(a=[str,int,None], c=[float, int])
+      def testFunc(a,b,c):
+         return float(a)+int(b)+c if a is not None else int(b)+c
+
+      self.assertEqual(testFunc('2', 9, 3.2), 14.2)
+      self.assertEqual(testFunc(2, '9', 3.2), 14.2)
+      self.assertEqual(testFunc(None, '9', 3.2), 12.2)
+
+      def failingTest1():
+         testFunc(1.1, '2', 3.2)
+
+      def failingTest2():
+         testFunc(2, None, 3.2)
+
+      def failingTest3():
+         testFunc(2, '9', None)
+
+      self.assertRaises(TypeError, failingTest1)
+      self.assertRaises(TypeError, failingTest2)
+      self.assertRaises(TypeError, failingTest3)
+
+
 
 
 if __name__ == "__main__":

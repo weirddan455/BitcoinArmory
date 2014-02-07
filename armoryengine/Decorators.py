@@ -61,10 +61,33 @@ def EmailOutput(send_from, password, send_to, subject='Armory Output'):
 # Enforce Argument Types -- Decorator factory (for a decorator with args)
 def VerifyArgTypes(**typemap):
 
+   # If None appears in any of the type lists, replace with type(None)
+   # And also convert to tuple
+   for varName,typeList in typemap.iteritems():
+      if isinstance(typeList, (list, tuple)):
+         newTypeList = []
+         for typeObj in typeList:
+            if typeObj is None:
+               newTypeList.append(type(None))          
+            else:
+               newTypeList.append(typeObj)
+         typemap[varName] = tuple(newTypeList)
+      
+   # Create an error str to identify what arguments failed and what's expected
+   def generateErrorMsg(argname, var):
+      errStr = 'Argument "%s" is %s;  Expected ' % (argname, str(type(var)))
+      #errStr = 'Argument "%s" is %s (expected %s)' % (aname, str(type(aname)), str(typemap[aname]))
+      if isinstance(typemap[argname], (list,tuple)):
+         errStr += ' or '.join([str(t) for t in typemap[argname]])
+      else:
+         errStr += '%s' % typemap[argname]
+      return errStr
+
    import inspect
    # We need to return a function that has;
    #     Input:   function + args
    #     Output:  wrapped function that checks argument list for types
+
    
    def decorator(func):
 
@@ -73,19 +96,19 @@ def VerifyArgTypes(**typemap):
          if not key in aspec.args:
             raise TypeError('Function "%s" has no argument "%s"'% (func.__name__,key))
 
+
       def wrappedFunc(*args, **kwargs):
+               
          for i,arg in enumerate(args):
             if i>=len(aspec.args):
                continue
             aname = aspec.args[i] 
             if aname in typemap and not isinstance(arg, typemap[aname]):
-               errStr = 'Argument "%s" is %s (expected %s)' % (aname, str(type(aname)), str(typemap[aname]))
-               raise TypeError(errStr)
+               raise TypeError(generateErrorMsg(aname, arg))
 
          for aname,val in kwargs.iteritems():
             if aname in typemap and not isinstance(val, typemap[aname]):
-               errStr = 'Argument "%s" is %s (expected %s)' % (aname, str(type(aname)), str(typemap[aname]))
-               raise TypeError(errStr)
+               raise TypeError(generateErrorMsg(aname, val))
 
          return func(*args, **kwargs)
 
