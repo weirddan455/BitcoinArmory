@@ -1741,14 +1741,15 @@ void BlockWriteBatcher::applyBlockToDB(StoredHeader &sbh)
       applyTxToBatchWriteData(iter->second, &sud);
    }
 
+   // we want to commit the undo data at the same time as actual changes
+   iface_->startBatch(BLKDATA);
+
    // At this point we should have a list of STX and SSH with all the correct
    // modifications (or creations) to represent this block.  Let's apply it.
    sbh.blockAppliedToDB_ = true;
    updateBlkDataHeader(iface_, sbh);
    //iface_->putStoredHeader(sbh, false);
 
-   // we want to commit the undo data at the same time as actual changes
-   iface_->startBatch(BLKDATA);
    
    // Now actually write all the changes to the DB all at once
    // if we've gotten to that threshold
@@ -2186,7 +2187,6 @@ void BlockWriteBatcher::commit()
 set<BinaryData> BlockWriteBatcher::searchForSSHKeysToDelete()
 {
    set<BinaryData> keysToDelete;
-   vector<BinaryData> fullSSHToDelete;
    
    for(map<BinaryData, StoredScriptHistory>::iterator iterSSH  = sshToModify_.begin();
        iterSSH != sshToModify_.end(); )
@@ -4721,55 +4721,6 @@ void BlockDataManager_LevelDB::deleteHistories(void)
 }
 
 
-////////////////////////////////////////////////////////////////////////////////
-void BlockDataManager_LevelDB::_saveScrAddrHistories(void)
-{
-   LOGINFO << "Saving wallet history to DB";
-
-   if(DBUtils.getArmoryDbType() != ARMORY_DB_BARE)
-   {
-      LOGERR << "Should only use saveScrAddrHistories in ARMORY_DB_BARE mode";
-      LOGERR << "Aborting save operation.";
-      return;
-   }
-
-   iface_->startBatch(BLKDATA);
-
-   uint32_t i=0;
-   set<BtcWallet*>::iterator wltIter;
-   for(wltIter  = registeredWallets_.begin();
-       wltIter != registeredWallets_.end();
-       wltIter++)
-   {
-      for(uint32_t a=0; a<(*wltIter)->getNumScrAddr(); a++)
-      { 
-         ScrAddrObj & scrAddr = (*wltIter)->getScrAddrObjByIndex(a);
-         BinaryData uniqKey = scrAddr.getScrAddr();
-
-         if(KEY_NOT_IN_MAP(uniqKey, registeredScrAddrMap_))
-         {
-            LOGERR << "How does the wallet have a non-registered ScrAddr?";
-            LOGERR << uniqKey.toHexStr().c_str();
-            continue;
-         }
-
-         RegisteredScrAddr & rsa = registeredScrAddrMap_[uniqKey];
-         vector<TxIOPair*> & txioList = scrAddr.getTxIOList();
-
-         StoredScriptHistory ssh;
-         ssh.uniqueKey_ = scrAddr.getScrAddr();
-         ssh.version_ = ARMORY_DB_VERSION;
-         ssh.alreadyScannedUpToBlk_ = rsa.alreadyScannedUpToBlk_;
-         for(uint32_t t=0; t<txioList.size(); t++)
-            ssh.insertTxio(*(txioList[t]));
-
-         iface_->putStoredScriptHistory(ssh); 
-         
-      }
-   }
-
-   iface_->commitBatch(BLKDATA);
-}
 
 
 ////////////////////////////////////////////////////////////////////////////////
