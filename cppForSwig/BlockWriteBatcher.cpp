@@ -1,20 +1,20 @@
 #include "BlockWriteBatcher.h"
 
 #include "StoredBlockObj.h"
-#include "leveldb_wrapper.h"
+#include "lsm_wrapper.h"
 
 
 static const uint64_t UPDATE_BYTES_SSH = 25;
 static const uint64_t UPDATE_BYTES_SUBSSH = 75;
 
-static void updateBlkDataHeader(InterfaceToLDB* iface, StoredHeader const & sbh)
+static void updateBlkDataHeader(LsmBlockDatabase* iface, StoredHeader const & sbh)
 {
    iface->putValue(BLKDATA, sbh.getDBKey(), sbh.serializeDBValue(BLKDATA));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 static StoredTx* makeSureSTXInMap(
-            InterfaceToLDB* iface,
+            LsmBlockDatabase* iface,
             BinaryDataRef txHash,
             map<BinaryData, StoredTx> & stxMap,
             uint64_t* additionalSize)
@@ -47,7 +47,7 @@ static StoredTx* makeSureSTXInMap(
 // and we'd like to not have to do a lookup for the hash if only provided
 // {hgt, dup, idx}
 static StoredTx* makeSureSTXInMap(
-            InterfaceToLDB* iface,
+            LsmBlockDatabase* iface,
             uint32_t hgt,
             uint8_t  dup,
             uint16_t txIdx,
@@ -77,7 +77,7 @@ static StoredTx* makeSureSTXInMap(
 
 
 static StoredScriptHistory* makeSureSSHInMap(
-            InterfaceToLDB* iface,
+            LsmBlockDatabase* iface,
             BinaryDataRef uniqKey,
             BinaryDataRef hgtX,
             map<BinaryData, StoredScriptHistory> & sshMap,
@@ -186,7 +186,7 @@ static StoredScriptHistory* makeSureSSHInMap(
 //            to have been added already but is different.
 //
 ////////////////////////////////////////////////////////////////////////////////
-BlockWriteBatcher::BlockWriteBatcher(InterfaceToLDB* iface)
+BlockWriteBatcher::BlockWriteBatcher(LsmBlockDatabase* iface)
    : iface_(iface), dbUpdateSize_(0)
 {
 
@@ -234,7 +234,7 @@ void BlockWriteBatcher::applyBlockToDB(StoredHeader &sbh)
    //iface_->putStoredHeader(sbh, false);
 
    { // we want to commit the undo data at the same time as actual changes
-      InterfaceToLDB::Batch batch(iface_, BLKDATA);
+      LSM::Transaction batch(&iface_->dbs_[BLKDATA]);
    
       // Now actually write all the changes to the DB all at once
       // if we've gotten to that threshold
@@ -630,7 +630,7 @@ void BlockWriteBatcher::commit()
    const set<BinaryData> keysToDelete = searchForSSHKeysToDelete();
    
    {
-      InterfaceToLDB::Batch batch(iface_, BLKDATA);
+      LSM::Transaction batch(&iface_->dbs_[BLKDATA]);
 
       for(map<BinaryData, StoredTx>::iterator iter_stx = stxToModify_.begin();
          iter_stx != stxToModify_.end();

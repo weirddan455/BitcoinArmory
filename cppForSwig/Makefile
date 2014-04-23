@@ -17,11 +17,11 @@ endif
 #**************************************************************************
 LINK = $(CXX)
 
-OBJS = UniversalTimer.o BinaryData.o leveldb_wrapper.o StoredBlockObj.o \
+OBJS = UniversalTimer.o BinaryData.o lsm_wrapper.o StoredBlockObj.o \
 	BtcUtils.o BlockObj.o BlockUtils.o EncryptionUtils.o Util.o \
 	BtcWallet.o LedgerEntry.o ScrAddrObj.o Blockchain.o BlockWriteBatcher.o \
-	BDM_mainthread.o \
-	libcryptopp.a libleveldb.a 
+	BDM_mainthread.o LSM.o \
+	libcryptopp.a $(SQLITE4_PATH)/libsqlite4.a
 
 #if python is specified, use it
 ifndef PYVER
@@ -31,7 +31,7 @@ else
 PYTHON_INCLUDES=$(shell $(PYVER)-config --includes )
 endif
 
-CPPFLAGS += $(ARMORY_CPPFLAGS) -Icryptopp -Ileveldb/include -DUSE_CRYPTOPP -D__STDC_LIMIT_MACROS
+CPPFLAGS += $(ARMORY_CPPFLAGS) -Icryptopp -Ileveldb/include -DUSE_CRYPTOPP -D__STDC_LIMIT_MACROS -I$(SQLITE4_PATH) -I$(SQLITE4_PATH)/src
 LDLIBS += -lpthread -Lleveldb
 SWIG_OPTS    += -c++ -python -classic -threads
 

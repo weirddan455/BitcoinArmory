@@ -6,8 +6,8 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 //
-#ifndef _LEVELDB_WRAPPER_
-#define _LEVELDB_WRAPPER_
+#ifndef _LSM_WRAPPER_
+#define _LSM_WRAPPER_
 
 #include <list>
 #include <vector>
@@ -17,11 +17,7 @@
 #include "BlockObj.h"
 #include "StoredBlockObj.h"
 
-#include "leveldb/db.h"
-#include "leveldb/write_batch.h"
-#include "leveldb/cache.h"
-//#include "leveldb/filter_policy.h"
-
+#include "LSM.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -108,6 +104,66 @@ class StoredScriptHistory;
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
+class LDBIter
+{
+public: 
+
+   // fill_cache argument should be false for large bulk scans
+   LDBIter(void) { isDirty_=true;}
+   explicit LDBIter(LSM::Iterator dbptr);
+
+   bool isNull(void) { return !iter_.isValid(); }
+   bool isValid(void) { return iter_.isValid(); }
+   bool isValid(DB_PREFIX dbpref);
+
+   bool readIterData(void);
+
+   bool advance(void);
+   bool advance(DB_PREFIX prefix);
+   bool advanceAndRead(void);
+   bool advanceAndRead(DB_PREFIX prefix);
+
+   BinaryData       getKey(void) const;
+   BinaryData       getValue(void) const;
+   BinaryDataRef    getKeyRef(void) const;
+   BinaryDataRef    getValueRef(void) const;
+   BinaryRefReader& getKeyReader(void) const;
+   BinaryRefReader& getValueReader(void) const;
+
+   // All the seekTo* methods do the exact same thing, the variant simply 
+   // determines the meaning of the return true/false value.
+   bool seekTo(BinaryDataRef key);
+   bool seekTo(DB_PREFIX pref, BinaryDataRef key);
+   bool seekToExact(BinaryDataRef key);
+   bool seekToExact(DB_PREFIX pref, BinaryDataRef key);
+   bool seekToStartsWith(BinaryDataRef key);
+   bool seekToStartsWith(DB_PREFIX prefix);
+   bool seekToStartsWith(DB_PREFIX pref, BinaryDataRef key);
+   bool seekToFirst(void);
+
+   // Return true if the iterator is currently on valid data, with key match
+   bool checkKeyExact(BinaryDataRef key);
+   bool checkKeyExact(DB_PREFIX prefix, BinaryDataRef key);
+   bool checkKeyStartsWith(BinaryDataRef key);
+   bool checkKeyStartsWith(DB_PREFIX prefix, BinaryDataRef key);
+
+   bool verifyPrefix(DB_PREFIX prefix, bool advanceReader=true);
+
+   void resetReaders(void){currKeyReader_.resetPosition();currValueReader_.resetPosition();}
+
+private:
+
+   LSM::Iterator iter_;
+
+   mutable BinaryData       currKey_;
+   mutable BinaryData       currValue_;
+   mutable BinaryRefReader  currKeyReader_;
+   mutable BinaryRefReader  currValueReader_;
+   bool isDirty_;
+   
+   
+};
+
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -160,118 +216,18 @@ class StoredScriptHistory;
 //          
 
 
-////////////////////////////////////////////////////////////////////////////////
-class LDBIter
-{
-public: 
-
-   // fill_cache argument should be false for large bulk scans
-   LDBIter(void) { db_=NULL; iter_=NULL; isDirty_=true;}
-   LDBIter(leveldb::DB* dbptr, bool fill_cache=true);
-   ~LDBIter(void) { destroy(); }
-   void destroy(void) {if(iter_!=NULL) delete iter_; iter_ = NULL; db_ = NULL;}
-
-   bool isNull(void) { return iter_==NULL; }
-   bool isValid(void) { return (!isNull() && iter_->Valid()); }
-   bool isValid(DB_PREFIX dbpref);
-
-   bool readIterData(void);
-
-   bool advance(void);
-   bool advance(DB_PREFIX prefix);
-   bool advanceAndRead(void);
-   bool advanceAndRead(DB_PREFIX prefix);
-
-   BinaryData       getKey(void) ;
-   BinaryData       getValue(void) ;
-   BinaryDataRef    getKeyRef(void) ;
-   BinaryDataRef    getValueRef(void) ;
-   BinaryRefReader& getKeyReader(void) ;
-   BinaryRefReader& getValueReader(void) ;
-
-   // All the seekTo* methods do the exact same thing, the variant simply 
-   // determines the meaning of the return true/false value.
-   bool seekTo(BinaryDataRef key);
-   bool seekTo(DB_PREFIX pref, BinaryDataRef key);
-   bool seekToExact(BinaryDataRef key);
-   bool seekToExact(DB_PREFIX pref, BinaryDataRef key);
-   bool seekToStartsWith(BinaryDataRef key);
-   bool seekToStartsWith(DB_PREFIX prefix);
-   bool seekToStartsWith(DB_PREFIX pref, BinaryDataRef key);
-   bool seekToFirst(void);
-
-   // Return true if the iterator is currently on valid data, with key match
-   bool checkKeyExact(BinaryDataRef key);
-   bool checkKeyExact(DB_PREFIX prefix, BinaryDataRef key);
-   bool checkKeyStartsWith(BinaryDataRef key);
-   bool checkKeyStartsWith(DB_PREFIX prefix, BinaryDataRef key);
-
-   bool verifyPrefix(DB_PREFIX prefix, bool advanceReader=true);
-
-   void resetReaders(void){currKey_.resetPosition();currValue_.resetPosition();}
-
-   leveldb::Slice binaryDataToSlice(BinaryData const & bd) 
-         {return leveldb::Slice((char*)bd.getPtr(), bd.getSize());}
-   leveldb::Slice binaryDataRefToSlice(BinaryDataRef const & bdr)
-         {return leveldb::Slice((char*)bdr.getPtr(), bdr.getSize());}
-
-private:
-
-
-   leveldb::DB* db_;
-   leveldb::Iterator* iter_;
-
-   BinaryRefReader  currKey_;
-   BinaryRefReader  currValue_;
-   bool isDirty_;
-   
-   
-};
-
-
 
 ////////////////////////////////////////////////////////////////////////////////
-class InterfaceToLDB
+class LsmBlockDatabase
 {
-private:
-
-   /////////////////////////////////////////////////////////////////////////////
-   leveldb::Slice binaryDataToSlice(BinaryData const & bd) 
-         {return leveldb::Slice((char*)bd.getPtr(), bd.getSize());}
-   leveldb::Slice binaryDataRefToSlice(BinaryDataRef const & bdr)
-         {return leveldb::Slice((char*)bdr.getPtr(), bdr.getSize());}
-
-
-
-   /////////////////////////////////////////////////////////////////////////////
-   // These four sliceTo* methods make copies, and thus safe to use even after
-   // we have advanced the iterator to new data
-   /////////////////////////////////////////////////////////////////////////////
-   BinaryData   sliceToBinaryData(   leveldb::Slice slice);
-   void         sliceToBinaryData(   leveldb::Slice slice, BinaryData & bd);
-   BinaryReader sliceToBinaryReader( leveldb::Slice slice);
-   void         sliceToBinaryReader( leveldb::Slice slice, BinaryReader & brr);
-
-   /////////////////////////////////////////////////////////////////////////////
-   // The reamining sliceTo* methods are reference-based, which become
-   // invalid after the iterator moves on.
-   BinaryDataRef   sliceToBinaryDataRef(  leveldb::Slice slice);
-   BinaryRefReader sliceToBinaryRefReader(leveldb::Slice slice);
-
-
 public:
 
    /////////////////////////////////////////////////////////////////////////////
-   InterfaceToLDB(void);
-   ~InterfaceToLDB(void);
-
-
+   LsmBlockDatabase(void);
+   ~LsmBlockDatabase(void);
 
    /////////////////////////////////////////////////////////////////////////////
-   void init(void);
-
-   /////////////////////////////////////////////////////////////////////////////
-   bool openDatabases(string basedir, 
+   void openDatabases(string basedir, 
                       BinaryData const & genesisBlkHash,
                       BinaryData const & genesisTxHash,
                       BinaryData const & magic,
@@ -297,36 +253,32 @@ public:
    uint32_t   getTopBlockHeight(DB_SELECT db);
    
    /////////////////////////////////////////////////////////////////////////////
-   LDBIter getIterator(DB_SELECT db, bool fill_cache=true) 
-                                    { return LDBIter(dbs_[db], fill_cache); }
+   LDBIter getIterator(DB_SELECT db) const
+      { return LDBIter(dbs_[db].begin()); }
    
 
    /////////////////////////////////////////////////////////////////////////////
-   // Get value using pre-created slice
-   BinaryData getValue(DB_SELECT db, leveldb::Slice ldbKey);
+   // Get value using BinaryData object.  If you have a string, you can use
+   // BinaryData key(string(theStr));
+   BinaryData getValue(DB_SELECT db, BinaryDataRef keyWithPrefix) const;
 
    /////////////////////////////////////////////////////////////////////////////
    // Get value using BinaryData object.  If you have a string, you can use
    // BinaryData key(string(theStr));
-   BinaryData getValue(DB_SELECT db, BinaryDataRef keyWithPrefix);
-
-   /////////////////////////////////////////////////////////////////////////////
-   // Get value using BinaryData object.  If you have a string, you can use
-   // BinaryData key(string(theStr));
-   BinaryData getValue(DB_SELECT db, DB_PREFIX pref, BinaryDataRef key);
+   BinaryData getValue(DB_SELECT db, DB_PREFIX pref, BinaryDataRef key) const;
 
    /////////////////////////////////////////////////////////////////////////////
    // Get value using BinaryDataRef object.  The data from the get* call is 
    // actually stored in a member variable, and thus the refs are valid only 
    // until the next get* call.
-   BinaryDataRef getValueRef(DB_SELECT db, BinaryDataRef keyWithPrefix);
-   BinaryDataRef getValueRef(DB_SELECT db, DB_PREFIX prefix, BinaryDataRef key);
+   BinaryDataRef getValueRef(DB_SELECT db, BinaryDataRef keyWithPrefix) const;
+   BinaryDataRef getValueRef(DB_SELECT db, DB_PREFIX prefix, BinaryDataRef key) const;
 
    /////////////////////////////////////////////////////////////////////////////
    // Same as the getValueRef, in that they are only valid until the next get*
    // call.  These are convenience methods which basically just save us 
-   BinaryRefReader getValueReader(DB_SELECT db, BinaryDataRef keyWithPrefix);
-   BinaryRefReader getValueReader(DB_SELECT db, DB_PREFIX prefix, BinaryDataRef key);
+   BinaryRefReader getValueReader(DB_SELECT db, BinaryDataRef keyWithPrefix) const;
+   BinaryRefReader getValueReader(DB_SELECT db, DB_PREFIX prefix, BinaryDataRef key) const;
 
 
    BinaryData getHashForDBKey(BinaryData dbkey);
@@ -353,7 +305,7 @@ public:
                BinaryDataRef key);
 
    // Move the iterator to the first entry >= txHash
-   bool seekToTxByHash(LDBIter & ldbIter, BinaryDataRef txHash);
+   bool seekToTxByHash(LDBIter & ldbIter, BinaryDataRef txHash) const;
 
 
    /////////////////////////////////////////////////////////////////////////////
@@ -361,7 +313,7 @@ public:
    // the iterator already on the next desired block.  So our "advance" op may
    // have finished before it started.  Alternatively, we may be on this block 
    // because we checked it and decide we don't care, so we want to skip it.
-   bool advanceToNextBlock(LDBIter & iter, bool skip=false);
+   bool advanceToNextBlock(LDBIter & iter, bool skip=false) const;
    bool advanceIterAndRead(DB_SELECT, DB_PREFIX);
 
    bool dbIterIsValid(DB_SELECT db, DB_PREFIX prefix=DB_PREFIX_COUNT);
@@ -392,7 +344,7 @@ public:
    /////////////////////////////////////////////////////////////////////////////
    void getBlock(BlockHeader & bh, 
                  vector<Tx> & txList, 
-                 leveldb::Iterator* iter=NULL,
+                 LSM::Iterator* iter=NULL,
                  bool ignoreMerkle = true);
 
 
@@ -403,52 +355,15 @@ public:
    BinaryData getRawHeader(BinaryData const & headerHash);
    //bool addHeader(BinaryData const & headerHash, BinaryData const & headerRaw);
 
-
-private:
-   /////////////////////////////////////////////////////////////////////////////
-   // All put/del ops will be batched/queued, and only executed when called
-   // commitBatch().  We track the number calls to startBatch and commitBatch
-   // and only write if we've called commit as many times as we called start.
-   // In this way, we can have multiple levels starting and ending batches 
-   // without caring whether a batched operation is already in process or if 
-   // it's the first
-   void startBatch(DB_SELECT db);
-   void commitBatch(DB_SELECT db);
-   bool isBatchOn(DB_SELECT db)   { return batchStarts_[db] > 0; }
 public:
 
-   class Batch
-   {
-      InterfaceToLDB *const iface_;
-      const DB_SELECT db_;
+   typedef LSM::Transaction Batch;
 
-   public:
-      Batch(InterfaceToLDB *iface, DB_SELECT db)
-         : iface_(iface), db_(db)
-      {
-         iface_->startBatch(db_);
-      }
-      
-      void restart()
-      {
-         iface_->commitBatch(db_);
-         iface_->startBatch(db_);
-      }
-      
-      ~Batch()
-      {
-         iface_->commitBatch(db_);
-      }
-   private:
-      Batch(const Batch&); // disallow copies
-      Batch&operator=(const Batch&); // disallow assignment
-   };
+   uint8_t getValidDupIDForHeight(uint32_t blockHgt);
+   void setValidDupIDForHeight(uint32_t blockHgt, uint8_t dup);
    
-
    /////////////////////////////////////////////////////////////////////////////
    uint8_t getValidDupIDForHeight_fromDB(uint32_t blockHgt);
-   uint8_t getValidDupIDForHeight(uint32_t blockHgt);
-   void    setValidDupIDForHeight(uint32_t blockHgt, uint8_t dup);
 
    ////////////////////////////////////////////////////////////////////////////
    uint8_t getDupForBlockHash(BinaryDataRef blockHash);
@@ -624,7 +539,7 @@ public:
                                           uint8_t  dup, 
                                           uint16_t txIndex);
 
-   StoredTxHints getHintsForTxHash(BinaryDataRef txHash);
+   StoredTxHints getHintsForTxHash(BinaryDataRef txHash) const;
 
 
    ////////////////////////////////////////////////////////////////////////////
@@ -641,16 +556,6 @@ public:
    bool computeUndoDataForBlock(uint32_t height, 
                                 uint8_t dupID,
                                 StoredUndoData & sud);
-
-
-
-   /////////////////////////////////////////////////////////////////////////////
-   bool checkStatus(leveldb::Status stat, bool warn=true);
-
-   void     setMaxOpenFiles(uint32_t n) {  maxOpenFiles_ = n;   }
-   uint32_t getMaxOpenFiles(void)       { return maxOpenFiles_; }
-   void     setLdbBlockSize(uint32_t sz){ ldbBlockSize_ = sz;   }
-   uint32_t getLdbBlockSize(void)       { return ldbBlockSize_; }
 
 
    KVLIST getAllDatabaseEntries(DB_SELECT db);
@@ -673,33 +578,22 @@ private:
    ARMORY_DB_TYPE       armoryDbType_;
    DB_PRUNE_TYPE        dbPruneType_;
 
-   //leveldb::Iterator*     iters_[2];
-   leveldb::WriteBatch*   batches_[2];
-   leveldb::DB*           dbs_[2];  
-   string                 dbPaths_[2];
-   bool                   iterIsDirty_[2];
+public:
+   LSM                dbs_[2];  
+private:
+   string               dbPaths_[2];
    //leveldb::FilterPolicy* dbFilterPolicy_[2];
-
-   // This will be incremented every time startBatch is called, decremented
-   // every time commitBatch is called.  We will only *actually* start a new
-   // batch when the value starts at zero, or commit when it ends at zero.
-   uint32_t             batchStarts_[2];
-   
-
-   vector<uint8_t>      validDupByHeight_;
 
    //BinaryRefReader      currReadKey_;
    //BinaryRefReader      currReadValue_;;
-   string               lastGetValue_;
+   mutable BinaryData           lastGetValue_;
    
    bool                 dbIsOpen_;
    uint32_t             ldbBlockSize_;
 
    uint32_t             lowestScannedUpTo_;
-
-   leveldb::Status      lastStatus_;
-
-   uint32_t             maxOpenFiles_;
+   
+   vector<uint8_t>      validDupByHeight_;
 
    // In this case, a address is any TxOut script, which is usually
    // just a 25-byte script.  But this generically captures all types
@@ -707,34 +601,31 @@ private:
    map<BinaryData, StoredScriptHistory>   registeredSSHs_;
 };
 
-
 ////////////////////////////////////////////////////////////////////////////////
-// A semi-singleton class: this basically allows you 
-class LevelDBWrapper
+// A semi-singleton class: this basically allows you
+class LSMWrapper
 {
 public:
 
    /////////////////////////////////////////////////////////////////////////////
-   static InterfaceToLDB & GetInterface(uint32_t i=0)
+   static LsmBlockDatabase & GetInterface(uint32_t i=0)
    {
       if(ifaceVect_.size() < i+1)
       {
          ifaceVect_.resize(i+1); 
-         ifaceVect_[i] = new InterfaceToLDB;
-         ifaceVect_[i]->init();
+         ifaceVect_[i] = new LsmBlockDatabase;
       }
 
       return *(ifaceVect_[i]);
    }
 
    /////////////////////////////////////////////////////////////////////////////
-   static InterfaceToLDB* GetInterfacePtr(uint32_t i=0)
+   static LsmBlockDatabase* GetInterfacePtr(uint32_t i=0)
    {
       if(ifaceVect_.size() < i+1)
       {
          ifaceVect_.resize(i+1); 
-         ifaceVect_[i] = new InterfaceToLDB;
-         ifaceVect_[i]->init();
+         ifaceVect_[i] = new LsmBlockDatabase;
       }
 
       return ifaceVect_[i];
@@ -742,9 +633,8 @@ public:
 
 private:
 
-   static vector<InterfaceToLDB*> ifaceVect_;
+   static vector<LsmBlockDatabase*> ifaceVect_;
 };
-
 
 #endif
 // kate: indent-width 3; replace-tabs on;

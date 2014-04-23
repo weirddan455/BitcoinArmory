@@ -33,7 +33,7 @@
 #include "BtcUtils.h"
 #include "BlockObj.h"
 #include "StoredBlockObj.h"
-#include "leveldb_wrapper.h"
+#include "lsm_wrapper.h"
 
 #include "cryptlib.h"
 #include "sha.h"
@@ -48,6 +48,7 @@
 using namespace std;
 
 class BlockDataManager_LevelDB;
+class LSM;
 
 typedef enum
 {
@@ -90,10 +91,8 @@ struct ZeroConfData
 class BlockDataManager_LevelDB
 {
 private:
+   LsmBlockDatabase *iface_;
 
-   // This is our permanent link to the two databases used
-   InterfaceToLDB* iface_;
-   
    // Need a separate memory pool just for zero-confirmation transactions
    // We need the second map to make sure we can find the data to remove
    // it, when necessary
@@ -373,7 +372,7 @@ public:
    void scanBlockchainForTx(uint32_t startBlknum, uint32_t endBlknum,
                                                    bool fetchFirst);
    void rescanWalletZeroConf();
-   InterfaceToLDB *getIFace(void) {return iface_;}
+   LsmBlockDatabase *getIFace(void) {return iface_;}
    vector<TxIOPair> getHistoryForScrAddr(BinaryDataRef uniqKey, 
                                           bool withMultisig=false);
    void eraseTx(const BinaryData& txHash);
@@ -387,8 +386,9 @@ public:
 
 public:
    //uint32_t getNumTx(void) const { return txHintMap_.size(); }
+
    StoredHeader getMainBlockFromDB(uint32_t hgt);
-   uint8_t      getMainDupFromDB(uint32_t hgt);
+   uint8_t      getMainDupFromDB(uint32_t hgt) const;
    StoredHeader getBlockFromDB(uint32_t hgt, uint8_t dup);
 
 
@@ -452,13 +452,6 @@ public:
 //private: 
 
    void pprintSSHInfoAboutHash160(BinaryData const & a160);
-
-   
-   /////////////////////////////////////////////////////////////////////////////
-   void     setMaxOpenFiles(uint32_t n) {iface_->setMaxOpenFiles(n);}
-   uint32_t getMaxOpenFiles(void)       {return iface_->getMaxOpenFiles();}
-   void     setLdbBlockSize(uint32_t sz){iface_->setLdbBlockSize(sz);}
-   uint32_t getLdbBlockSize(void)       {return iface_->getLdbBlockSize();}
 
    // Simple wrapper around the logger so that they are easy to access from SWIG
    void StartCppLogging(string fname, int lvl) { STARTLOGGING(fname, (LogLevel)lvl); }

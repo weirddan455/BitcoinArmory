@@ -13,6 +13,7 @@
 #include "Util.h"
 #include "BtcWallet.h"
 #include "BlockWriteBatcher.h"
+#include "LSM.h"
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -26,7 +27,7 @@
 //        now (and could save a lookup by skipping it).  But I want unified
 //        code flow for both pruning and non-pruning. 
 static void createUndoDataFromBlock(
-      InterfaceToLDB* iface,
+      LsmBlockDatabase* iface,
       uint32_t hgt,
       uint8_t  dup,
       StoredUndoData & sud)
@@ -88,7 +89,7 @@ static void createUndoDataFromBlock(
 class ReorgUpdater
 {
    Blockchain *const blockchain_;
-   InterfaceToLDB* const iface_;
+   LsmBlockDatabase* const iface_;
    
    set<HashString> txJustInvalidated_;
    set<HashString> txJustAffected_;
@@ -100,7 +101,7 @@ public:
    ReorgUpdater(
       const Blockchain::ReorganizationState& state,
       Blockchain *blockchain, 
-      InterfaceToLDB* iface
+      LsmBlockDatabase* iface
    )
       : blockchain_(blockchain)
       , iface_(iface)
@@ -427,7 +428,7 @@ void BlockDataManager_LevelDB::registeredScrAddrScan( Tx & theTx )
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 BlockDataManager_LevelDB::BlockDataManager_LevelDB(void) 
-   : iface_(LevelDBWrapper::GetInterfacePtr())
+   : iface_(LSMWrapper::GetInterfacePtr())
    , blockchain_(this)
 {
    reset();
@@ -560,15 +561,14 @@ bool BlockDataManager_LevelDB::initializeDBInterface(ARMORY_DB_TYPE dbtype,
       return false;
    }
 
-
-   bool openWithErr = iface_->openDatabases(leveldbDir_, 
+   iface_->openDatabases(leveldbDir_, 
                                             GenesisHash_, 
                                             GenesisTxHash_, 
                                             MagicBytes_,
                                             dbtype, 
                                             prtype);
 
-   return openWithErr;
+   return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2070,7 +2070,7 @@ bool BlockDataManager_LevelDB::processNewHeadersInBlkFiles(uint32_t fnumStart,
    }
 
    {
-      InterfaceToLDB::Batch batch(iface_, HEADERS);
+      LSM::Transaction batch(&iface_->dbs_[HEADERS]);
          
       for(unsigned i = 0; i < blockchain_.numHeaders(); ++i)
       {
@@ -2432,7 +2432,7 @@ void BlockDataManager_LevelDB::readRawBlocksInFile(uint32_t fnum, uint32_t foffs
    bool breakbreak = false;
    uint32_t locInBlkFile = foffset;
 
-   InterfaceToLDB::Batch batch(iface_, BLKDATA);
+   LSM::Transaction batch(&iface_->dbs_[BLKDATA]);
 
    unsigned failedAttempts=0;
    
@@ -2506,7 +2506,8 @@ void BlockDataManager_LevelDB::readRawBlocksInFile(uint32_t fnum, uint32_t foffs
          if(dbUpdateSize>BlockWriteBatcher::UPDATE_BYTES_THRESH)
          {
             dbUpdateSize = 0;
-            batch.restart();
+            batch.commit();
+            batch.begin();
          }
 
          blocksReadSoFar_++;
@@ -2560,7 +2561,7 @@ StoredHeader BlockDataManager_LevelDB::getBlockFromDB(uint32_t hgt, uint8_t dup)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-uint8_t BlockDataManager_LevelDB::getMainDupFromDB(uint32_t hgt)
+uint8_t BlockDataManager_LevelDB::getMainDupFromDB(uint32_t hgt) const
 {
    return iface_->getValidDupIDForHeight(hgt);
 }
@@ -2587,7 +2588,7 @@ void BlockDataManager_LevelDB::scanDBForRegisteredTx(uint32_t blk0,
          //remove(bfile.c_str());
    }
 
-   LDBIter ldbIter = iface_->getIterator(BLKDATA, BULK_SCAN);
+   LDBIter ldbIter = iface_->getIterator(BLKDATA);
    BinaryData firstKey = DBUtils.getBlkDataKey(blk0, 0);
    ldbIter.seekTo(firstKey);
 
@@ -2638,7 +2639,7 @@ void BlockDataManager_LevelDB::deleteHistories(void)
       return;
 
    //////////
-   InterfaceToLDB::Batch batch(iface_, BLKDATA);
+   LSM::Transaction batch(&iface_->dbs_[BLKDATA]);
 
    do 
    {
@@ -2668,8 +2669,7 @@ void BlockDataManager_LevelDB::saveScrAddrHistories(void)
       return;
    }
 
-   InterfaceToLDB::Batch batch(iface_, BLKDATA);
-
+   LSM::Transaction batch(&iface_->dbs_[BLKDATA]);
    uint32_t i=0;
    set<BtcWallet*>::iterator wltIter;
    for(wltIter  = registeredWallets_.begin();

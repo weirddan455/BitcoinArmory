@@ -15,7 +15,7 @@
 #include "BinaryData.h"
 #include "BtcUtils.h"
 #include "BlockObj.h"
-#include "leveldb_wrapper.h"
+#include "lsm_wrapper.h"
 
 
 
@@ -702,12 +702,12 @@ BinaryData TxRef::getThisHash(void) const
 }
 
 /////////////////////////////////////////////////////////////////////////////
-void TxRef::setRef(BinaryDataRef bdr, InterfaceToLDB* iface)
+void TxRef::setRef(BinaryDataRef bdr, LsmBlockDatabase* iface)
 {
    dbKey6B_ = bdr.copy();
    dbIface_ = iface;
    if(iface==NULL)
-      dbIface_ = LevelDBWrapper().GetInterfacePtr();
+      dbIface_ = LSMWrapper().GetInterfacePtr();
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -943,7 +943,7 @@ bool TxIOPair::setTxIn(BinaryData dbKey8B)
    BinaryRefReader brr(dbKey8B);
    BinaryDataRef txKey6B = brr.get_BinaryDataRef(6);
    uint16_t      txInIdx = brr.get_uint16_t(BIGENDIAN);
-   return setTxIn(TxRef(txKey6B), (uint32_t)txInIdx);
+   return setTxIn(TxRef(txKey6B, 0), (uint32_t)txInIdx);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -952,7 +952,7 @@ bool TxIOPair::setTxOut(BinaryData dbKey8B)
    BinaryRefReader brr(dbKey8B);
    BinaryDataRef txKey6B  = brr.get_BinaryDataRef(6);
    uint16_t      txOutIdx = brr.get_uint16_t(BIGENDIAN);
-   return setTxOut(TxRef(txKey6B), (uint32_t)txOutIdx);
+   return setTxOut(TxRef(txKey6B, 0), (uint32_t)txOutIdx);
 }
 
 //////////////////////////////////////////////////////////////////////////////

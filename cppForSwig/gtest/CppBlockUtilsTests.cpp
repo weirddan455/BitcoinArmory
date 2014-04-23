@@ -9,7 +9,7 @@
 #include "../BlockObj.h"
 #include "../StoredBlockObj.h"
 #include "../PartialMerkle.h"
-#include "../leveldb_wrapper.h"
+#include "../lsm_wrapper.h"
 #include "../BlockUtils.h"
 #include "../BtcWallet.h"
 
@@ -4340,7 +4340,7 @@ TEST_F(StoredBlockObjTest, SScriptHistoryMarkSpent)
    // In order for for these tests to work properly, the TxIns and TxOuts need
    // to look like they're in the main branch.  Se we set the valid dupID vals
    // so that txio.hasTxInInMain() and txio.hasTxOutInMain() both pass
-   LevelDBWrapper::GetInterfacePtr()->setValidDupIDForHeight(hgt,dup);
+   LSMWrapper::GetInterfacePtr()->setValidDupIDForHeight(hgt,dup);
 
    ssh.uniqueKey_ = HASH160PREFIX + a160;
    ssh.version_ = 1;
@@ -4381,7 +4381,7 @@ class LevelDBTest : public ::testing::Test
 protected:
    virtual void SetUp(void) 
    {
-      iface_ = LevelDBWrapper::GetInterfacePtr();
+      iface_ = LSMWrapper::GetInterfacePtr();
       magic_ = READHEX(MAINNET_MAGIC_BYTES);
       ghash_ = READHEX(MAINNET_GENESIS_HASH_HEX);
       gentx_ = READHEX(MAINNET_GENESIS_TX_HASH_HEX);
@@ -4591,9 +4591,9 @@ protected:
       iface_ = NULL;
 
       #ifdef _MSC_VER
-         rmdir("./ldbtestdir/level*");
+         rmdir("./ldbtestdir/*");
       #else
-         system("rm -rf ./ldbtestdir/level*");
+         system("rm -rf ./ldbtestdir/*");
       #endif
    }
 
@@ -4706,7 +4706,7 @@ protected:
    }
 
 
-   InterfaceToLDB* iface_;
+   LsmBlockDatabase* iface_;
    vector<pair<BinaryData, BinaryData> > expectOutH_;
    vector<pair<BinaryData, BinaryData> > expectOutB_;
 
@@ -4746,7 +4746,7 @@ TEST_F(LevelDBTest, OpenClose)
    ASSERT_TRUE(iface_->databasesAreOpen());
 
    EXPECT_EQ(iface_->getTopBlockHeight(HEADERS), 0);
-   EXPECT_EQ(iface_->getTopBlockHash(HEADERS), READHEX(MAINNET_GENESIS_HASH_HEX));
+   EXPECT_EQ(READHEX(MAINNET_GENESIS_HASH_HEX), iface_->getTopBlockHash(HEADERS));
                           
    KVLIST HList = iface_->getAllDatabaseEntries(HEADERS);
    KVLIST BList = iface_->getAllDatabaseEntries(BLKDATA);
@@ -5417,7 +5417,7 @@ TEST_F(LevelDBTest, PutGetStoredScriptHistory)
 
    ///////////////////////////////////////////////////////////////////////////
    // A whole bunch of setup stuff we need for SSH operations to work right
-   InterfaceToLDB * iface = LevelDBWrapper::GetInterfacePtr();
+   LsmBlockDatabase * iface = LSMWrapper::GetInterfacePtr();
    iface->setValidDupIDForHeight(255,0);
    iface->setValidDupIDForHeight(256,0);
 
@@ -5845,7 +5845,7 @@ protected:
    virtual void SetUp(void) 
    {
       LOGDISABLESTDOUT();
-      iface_ = LevelDBWrapper::GetInterfacePtr();
+      iface_ = LSMWrapper::GetInterfacePtr();
       magic_ = READHEX(MAINNET_MAGIC_BYTES);
       ghash_ = READHEX(MAINNET_GENESIS_HASH_HEX);
       gentx_ = READHEX(MAINNET_GENESIS_TX_HASH_HEX);
@@ -5904,7 +5904,7 @@ protected:
       rmdir(homedir_);
 
       char* delstr = new char[4096];
-      sprintf(delstr, "%s/level*", ldbdir_.c_str());
+      sprintf(delstr, "%s/*", ldbdir_.c_str());
       rmdir(delstr);
       delete[] delstr;
 
@@ -5934,7 +5934,7 @@ protected:
    }
 #endif
 
-   InterfaceToLDB* iface_;
+   LsmBlockDatabase* iface_;
    BinaryData magic_;
    BinaryData ghash_;
    BinaryData gentx_;
@@ -6371,7 +6371,7 @@ protected:
    virtual void SetUp(void) 
    {
       LOGDISABLESTDOUT();
-      //iface_ = LevelDBWrapper::GetInterfacePtr();
+      //iface_ = LSMWrapper::GetInterfacePtr();
       magic_ = READHEX(MAINNET_MAGIC_BYTES);
       ghash_ = READHEX(MAINNET_GENESIS_HASH_HEX);
       gentx_ = READHEX(MAINNET_GENESIS_TX_HASH_HEX);
@@ -6399,7 +6399,7 @@ protected:
    BinaryRefReader sliceToRefReader(leveldb::Slice slice)
          { return BinaryRefReader( (uint8_t*)(slice.data()), slice.size()); }
 
-   InterfaceToLDB* iface_;
+   LsmBlockDatabase* iface_;
    BinaryData magic_;
    BinaryData ghash_;
    BinaryData gentx_;
@@ -6678,7 +6678,7 @@ protected:
       delete[] syscmd;
    }
 
-   InterfaceToLDB* iface_;
+   LsmBlockDatabase* iface_;
    BinaryData magic_;
    BinaryData ghash_;
    BinaryData gentx_;
@@ -6732,7 +6732,7 @@ protected:
    virtual void SetUp(void) 
    {
       LOGDISABLESTDOUT();
-      iface_ = LevelDBWrapper::GetInterfacePtr();
+      iface_ = LSMWrapper::GetInterfacePtr();
       magic_ = READHEX(MAINNET_MAGIC_BYTES);
       ghash_ = READHEX(MAINNET_GENESIS_HASH_HEX);
       gentx_ = READHEX(MAINNET_GENESIS_TX_HASH_HEX);
@@ -6790,7 +6790,7 @@ protected:
       rmdir(homedir_);
 
       char* delstr = new char[4096];
-      sprintf(delstr, "%s/level*", ldbdir_.c_str());
+      sprintf(delstr, "%s/*", ldbdir_.c_str());
       rmdir(delstr);
       delete[] delstr;
 
@@ -6820,7 +6820,7 @@ protected:
    }
 #endif
 
-   InterfaceToLDB* iface_;
+   LsmBlockDatabase* iface_;
    BinaryData magic_;
    BinaryData ghash_;
    BinaryData gentx_;
@@ -7184,7 +7184,7 @@ protected:
    virtual void SetUp(void) 
    {
       LOGDISABLESTDOUT();
-      iface_ = LevelDBWrapper::GetInterfacePtr();
+      iface_ = LSMWrapper::GetInterfacePtr();
       magic_ = READHEX(MAINNET_MAGIC_BYTES);
       ghash_ = READHEX(MAINNET_GENESIS_HASH_HEX);
       gentx_ = READHEX(MAINNET_GENESIS_TX_HASH_HEX);
@@ -7236,7 +7236,7 @@ protected:
       rmdir(homedir_);
 
       char* delstr = new char[4096];
-      sprintf(delstr, "%s/level*", ldbdir_.c_str());
+      sprintf(delstr, "%s/*", ldbdir_.c_str());
       rmdir(delstr);
       delete[] delstr;
 
@@ -7266,7 +7266,7 @@ protected:
    }
 #endif
 
-   InterfaceToLDB* iface_;
+   LsmBlockDatabase* iface_;
    BinaryData magic_;
    BinaryData ghash_;
    BinaryData gentx_;
@@ -7401,7 +7401,7 @@ protected:
    /////////////////////////////////////////////////////////////////////////////
    virtual void SetUp(void) 
    {
-      iface_ = LevelDBWrapper::GetInterfacePtr();
+      iface_ = LSMWrapper::GetInterfacePtr();
       magic_ = READHEX(MAINNET_MAGIC_BYTES);
       ghash_ = READHEX(MAINNET_GENESIS_HASH_HEX);
       gentx_ = READHEX(MAINNET_GENESIS_TX_HASH_HEX);
@@ -7464,7 +7464,7 @@ protected:
    }
 #endif
 
-   InterfaceToLDB* iface_;
+   LsmBlockDatabase* iface_;
    BinaryData magic_;
    BinaryData ghash_;
    BinaryData gentx_;

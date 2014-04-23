@@ -24,7 +24,7 @@
 
 
 ////////////////////////////////////////////////////////////////////////////////
-class InterfaceToLDB;  
+class LsmBlockDatabase;  
 class GlobalDBUtilities;  
 class TxRef;
 class Tx;
@@ -36,7 +36,7 @@ class TxOut;
 class BlockHeader
 {
    friend class Blockchain;
-   friend class InterfaceToLDB;
+   friend class LsmBlockDatabase;
 
 public:
 
@@ -153,12 +153,11 @@ class TxRef
 
 public:
    /////////////////////////////////////////////////////////////////////////////
-   TxRef(void) { setRef(); }
-   TxRef(BinaryDataRef bdr) { setRef(bdr); }
-   TxRef(BinaryDataRef bdr, InterfaceToLDB* ifc) { setRef(bdr, ifc); }
+   TxRef(void) { }
+   TxRef(BinaryDataRef bdr, LsmBlockDatabase* ifc) { setRef(bdr, ifc); }
 
    /////////////////////////////////////////////////////////////////////////////
-   void setRef(BinaryDataRef bdr=BinaryDataRef(), InterfaceToLDB* iface=NULL);
+   void setRef(BinaryDataRef bdr, LsmBlockDatabase* iface);
      
    /////////////////////////////////////////////////////////////////////////////
    BinaryData     getThisHash(void) const;
@@ -216,7 +215,7 @@ private:
 
    // TxRefs are associated with a particular interface (at this time, there
    // will only be one interface).
-   InterfaceToLDB*  dbIface_;  
+   LsmBlockDatabase*  dbIface_;  
 };
 
 
@@ -270,7 +269,7 @@ private:
 class TxIn
 {
    friend class BlockDataManager_LevelDB;
-   friend class InterfaceToLDB;
+   friend class LsmBlockDatabase;
 
 public:
    TxIn(void) : dataCopy_(0), parentHash_(0), parentHeight_(UINT32_MAX),
@@ -377,7 +376,7 @@ private:
 class TxOut
 {
    friend class BlockDataManager_LevelDB;
-   friend class InterfaceToLDB;
+   friend class LsmBlockDatabase;
 
 public:
 
@@ -478,7 +477,7 @@ private:
 class Tx
 {
    friend class BlockDataManager_LevelDB;
-   friend class InterfaceToLDB;
+   friend class LsmBlockDatabase;
 
 public:
    Tx(void) : isInitialized_(false), offsetsTxIn_(0), offsetsTxOut_(0) {}

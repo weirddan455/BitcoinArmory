@@ -1085,7 +1085,7 @@ Tx StoredTx::getTxCopy(void) const
    
    Tx returnTx(getSerializedTx());
    if(blockHeight_ != UINT32_MAX)
-      returnTx.setTxRef(TxRef(getDBKey(false)));
+      returnTx.setTxRef(TxRef(getDBKey(false), 0));
    return returnTx;
 }
 

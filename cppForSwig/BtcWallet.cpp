@@ -1202,7 +1202,7 @@ vector<TxIOPair> BtcWallet::getHistoryForScrAddr(
                                                 bool withMultisig)
 {
    StoredScriptHistory ssh;
-   InterfaceToLDB *iface_ = bdmPtr_->getIFace();
+   LsmBlockDatabase *iface_ = bdmPtr_->getIFace();
    iface_->getStoredScriptHistory(ssh, uniqKey);
 
    map<BinaryData, RegisteredScrAddr>::iterator iter;
@@ -1272,7 +1272,7 @@ void BtcWallet::fetchWalletRegisteredScrAddrData()
 
 void BtcWallet::fetchWalletRegisteredScrAddrData(BinaryData const & scrAddr)
 {
-   InterfaceToLDB *const iface = bdmPtr_->getIFace();
+   LsmBlockDatabase *const iface = bdmPtr_->getIFace();
 
    const vector<TxIOPair> hist = getHistoryForScrAddr(scrAddr);
 

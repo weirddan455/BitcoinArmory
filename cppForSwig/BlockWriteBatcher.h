@@ -18,7 +18,7 @@ class BlockWriteBatcher
 public:
    static const uint64_t UPDATE_BYTES_THRESH = 96*1024*1024;
    
-   BlockWriteBatcher(InterfaceToLDB* iface);
+   BlockWriteBatcher(LsmBlockDatabase* iface);
    ~BlockWriteBatcher();
    
    void applyBlockToDB(StoredHeader &sbh);
@@ -37,7 +37,7 @@ private:
                            StoredTx &       thisSTX,
                            StoredUndoData * sud);
 private:
-   InterfaceToLDB* const iface_;
+   LsmBlockDatabase* const iface_;
 
    // turn off batches by setting this to 0
    uint64_t dbUpdateSize_;
