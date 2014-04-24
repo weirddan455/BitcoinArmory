@@ -72,6 +72,8 @@ public:
       // make it so that sharedCount==1
       void detach();
       
+      void checkOk() const;
+      
       Iterator(lsm_db *db);
       
    public:

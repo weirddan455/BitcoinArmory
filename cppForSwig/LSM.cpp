@@ -44,9 +44,17 @@ void LSM::Iterator::reset()
    shared = 0;
 }
 
+inline void LSM::Iterator::checkOk() const
+{
+   if (!db || !shared)
+   {
+      throw std::logic_error("Tried to use invalid LSM Iterator");
+   }
+}
+
 void LSM::Iterator::detach()
 {
-   if (shared->sharedCount==1)
+   if (!shared || shared->sharedCount==1)
       return;
    
    SharedCsr *another = new SharedCsr;
@@ -149,11 +157,13 @@ bool LSM::Iterator::operator==(const Iterator &other) const
 
 bool LSM::Iterator::isValid() const
 {
+   checkOk();
    return !!lsm_csr_valid(shared->csr);
 }
 
 void LSM::Iterator::advance()
 {
+   checkOk();
    detach();
    int rc = lsm_csr_next(shared->csr);
    if (rc != LSM_OK)
@@ -161,6 +171,7 @@ void LSM::Iterator::advance()
 }
 void LSM::Iterator::advance(int c)
 {
+   checkOk();
    detach();
    while (c--)
    {
@@ -170,6 +181,8 @@ void LSM::Iterator::advance(int c)
 
 void LSM::Iterator::toFirst()
 {
+   checkOk();
+   detach();
    int rc = lsm_csr_first(shared->csr);
    if (rc != LSM_OK)
       throw std::runtime_error("Failed to seek cursor to first (" + errorString(rc) + ")");
@@ -177,6 +190,7 @@ void LSM::Iterator::toFirst()
 
 void LSM::Iterator::seek(const CharacterArrayRef &key, SeekBy e)
 {
+   checkOk();
    detach();
    int le = LSM_SEEK_GE;
    if (e == Seek_EQ)
@@ -206,6 +220,7 @@ void LSM::Iterator::seek(const CharacterArrayRef &key, SeekBy e)
 
 std::string LSM::Iterator::key() const
 {
+   checkOk();
    const void *key;
    int len;
    int rc = lsm_csr_key(shared->csr, &key, &len);
@@ -216,6 +231,7 @@ std::string LSM::Iterator::key() const
 
 std::string LSM::Iterator::value() const
 {
+   checkOk();
    const void *val;
    int len;
    int rc = lsm_csr_value(shared->csr, &val, &len);

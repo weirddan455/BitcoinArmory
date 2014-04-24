@@ -290,6 +290,7 @@ bool LDBIter::checkKeyStartsWith(DB_PREFIX prefix, BinaryDataRef key)
 ////////////////////////////////////////////////////////////////////////////////
 LsmBlockDatabase::LsmBlockDatabase() 
 {
+   dbIsOpen_ = false;
 }
 
 
@@ -2250,7 +2251,7 @@ TxRef LsmBlockDatabase::getTxRef( BinaryDataRef txHash )
       return TxRef(ldbIter.getKeyReader().get_BinaryDataRef(6), this);
    }
    
-   return TxRef();
+   throw runtime_error("No txref with that hash");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
