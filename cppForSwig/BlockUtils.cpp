@@ -1153,10 +1153,16 @@ bool BlockDataManager_LevelDB::hasTxWithHashInDB(BinaryData const & txHash)
 /////////////////////////////////////////////////////////////////////////////
 bool BlockDataManager_LevelDB::hasTxWithHash(BinaryData const & txHash)
 {
-   if(iface_->getTxRef(txHash).isInitialized())
-      return true;
-   else
+   try
+   {
+      if(iface_->getTxRef(txHash).isInitialized())
+         return true;
+   }
+   catch (std::runtime_error &e)
+   {
       return KEY_IN_MAP(txHash, zeroConfMap_);
+   }
+   return false;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2488,7 +2494,8 @@ void BlockDataManager_LevelDB::readRawBlocksInFile(uint32_t fnum, uint32_t foffs
          {
             LOGERR << e.what() << " (error encountered processing block at byte "
                << locInBlkFile << " file "
-               << blkfile << ", blocksize " << nextBlkSize << ")";
+               << blkfile << ", blocksize " << nextBlkSize
+               << ", top=" << blockchain_.top().getBlockHeight() << ")";
             failedAttempts++;
             
             if (failedAttempts >= 4)
@@ -3594,7 +3601,10 @@ void BlockDataManager_LevelDB::addRawBlockToDB(BinaryRefReader & brr)
 
          // Don't put it into the DB if it's not proper!
          if(sbh.blockHeight_==UINT32_MAX || sbh.duplicateID_==UINT8_MAX)
-            throw BlockDeserializingException("Error parsing block (corrupt?) - Cannot add raw block to DB without hgt & dup");
+         {
+            LOGINFO << "Cannot add raw block to DB without hgt & dup (also, block was unserializable)";
+            return;
+         }
 
          iface_->putStoredHeader(sbh, true);
          missingBlockHashes_.push_back( sbh.thisHash_ );
@@ -3613,7 +3623,10 @@ void BlockDataManager_LevelDB::addRawBlockToDB(BinaryRefReader & brr)
 
    // Don't put it into the DB if it's not proper!
    if(sbh.blockHeight_==UINT32_MAX || sbh.duplicateID_==UINT8_MAX)
-      throw BlockDeserializingException("Cannot add raw block to DB without hgt & dup");
+   {
+      LOGINFO << "Cannot add raw block to DB without hgt & dup";
+      return;
+   }
    iface_->putStoredHeader(sbh, true);
 }
 

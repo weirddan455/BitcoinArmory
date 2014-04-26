@@ -4,6 +4,10 @@
 #include <string>
 #include <stdexcept>
 #include <vector>
+#include <pthread.h>
+
+
+//#define LSM_THREADCHECK
 
 struct lsm_db;
 struct lsm_cursor;
@@ -44,6 +48,7 @@ class LSM
 {
    lsm_db *db;
    int transactionLevel;
+   pthread_t thread;
 
 public:
    // this class can be used like a C++ iterator,
@@ -201,6 +206,10 @@ public:
    // item
    Iterator begin() const
    {
+#ifdef LSM_THREADCHECK
+      if (!pthread_equal(thread, pthread_self()))
+         throw std::runtime_error("Used LSM on two threads");
+#endif
       Iterator c(db);
       c.toFirst();
       return c;
@@ -208,6 +217,10 @@ public:
    // creates a cursor that points to an invalid item
    Iterator end() const
    {
+#ifdef LSM_THREADCHECK
+      if (!pthread_equal(thread, pthread_self()))
+         throw std::runtime_error("Used LSM on two threads");
+#endif
       Iterator c(db);
       return c;
    }

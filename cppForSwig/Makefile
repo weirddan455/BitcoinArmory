@@ -76,6 +76,9 @@ CppBlockUtils_wrap.o: $(ALL_HEADERS) CppBlockUtils_wrap.cxx
 playground: ../_CppBlockUtils.so playground.cpp $(ALL_HEADERS)
 	$(CXX) $(CXXCPP) $(CXXFLAGS) $(LDFLAGS) $(shell $(PYVER)-config --libs) -Wl,-rpath,$(PWD)/.. ../_CppBlockUtils.so -o playground playground.cpp
 
+lsmlook: lsmlook.cpp LSM.o LSM.h
+	$(CXX) $(LDLIBS) $(CXXCPP) $(CXXFLAGS) $(LDFLAGS) -lreadline -o lsmlook lsmlook.cpp LSM.o $(SQLITE4_PATH)/libsqlite4.a
+
 ##########################################################################
 # And now we have created all the individual object files specified with 
 # the macro "OBJS". 

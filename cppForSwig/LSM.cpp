@@ -2,6 +2,8 @@
 
 #include <lsm.h>
 
+//#define DISABLE_TRANSACTIONS
+
 static std::string errorString(int rc)
 {
    if (rc == LSM_OK)
@@ -157,7 +159,7 @@ bool LSM::Iterator::operator==(const Iterator &other) const
 
 bool LSM::Iterator::isValid() const
 {
-   checkOk();
+   if (!shared) return false;
    return !!lsm_csr_valid(shared->csr);
 }
 
@@ -259,10 +261,12 @@ void LSM::Transaction::commit()
    if (myLevel != db->transactionLevel-1)
       throw std::runtime_error("Cannot commit the non topmost transaction");
    
+#ifndef DISABLE_TRANSACTIONS
    int rc = lsm_commit(db->db, myLevel);
    
    if (rc != LSM_OK)
       throw std::runtime_error("Failed to commit transaction (" + errorString(rc) + ")");
+#endif
    myLevel = -1;
    db->transactionLevel--;
 
@@ -274,10 +278,12 @@ void LSM::Transaction::rollback()
    if (myLevel != db->transactionLevel-1)
       throw std::runtime_error("Cannot rollback the non topmost transaction");
    
+#ifndef DISABLE_TRANSACTIONS
    int rc = lsm_rollback(db->db, myLevel);
    
    if (rc != LSM_OK)
       throw std::runtime_error("Failed to rollback transaction (" + errorString(rc) + ")");
+#endif
    myLevel = -1;
    db->transactionLevel--;
 }
@@ -288,6 +294,7 @@ void LSM::Transaction::begin()
       return;
    
    myLevel = db->transactionLevel++;
+#ifndef DISABLE_TRANSACTIONS
    int rc = lsm_begin(db->db, myLevel);
    if (rc != LSM_OK)
    {
@@ -295,12 +302,14 @@ void LSM::Transaction::begin()
       db->transactionLevel--;
       throw std::runtime_error("Failed to begin transaction (" + errorString(rc) + ")");
    }
+#endif
 }
 
 
 LSM::LSM()
 {
    db = 0;
+   thread = 0;
 }
 
 LSM::~LSM()
@@ -324,6 +333,10 @@ void LSM::open(const char *filename)
    if (rc != LSM_OK)
       throw LSMException("Failed to open " + std::string(filename)
          + " ("+ errorString(rc) + ")");
+
+#ifdef LSM_THREADCHECK
+   thread = pthread_self();
+#endif
 }
 
 void LSM::close()
@@ -339,6 +352,7 @@ void LSM::close()
          );
       }
       db = 0;
+      thread = 0;
    }
 }
 
@@ -347,6 +361,10 @@ void LSM::insert(
    const CharacterArrayRef& value
 )
 {
+#ifdef LSM_THREADCHECK
+   if (!pthread_equal(thread, pthread_self()))
+      throw std::runtime_error("Used LSM on two threads");
+#endif
    int rc = lsm_insert(db, key.data, key.len, value.data, value.len);
    if (rc != LSM_OK)
       throw LSMException("Failed to insert (" + errorString(rc) + ")");
@@ -354,6 +372,10 @@ void LSM::insert(
 
 void LSM::erase(const CharacterArrayRef& key)
 {
+#ifdef LSM_THREADCHECK
+   if (!pthread_equal(thread, pthread_self()))
+      throw std::runtime_error("Used LSM on two threads");
+#endif
    int rc = lsm_delete(db, key.data, key.len);
    if (rc != LSM_OK)
       throw LSMException("Failed to erase (" + errorString(rc) + ")");
@@ -365,6 +387,10 @@ void LSM::eraseBetween(
    const CharacterArrayRef& key2
 )
 {
+#ifdef LSM_THREADCHECK
+   if (!pthread_equal(thread, pthread_self()))
+      throw std::runtime_error("Used LSM on two threads");
+#endif
    int rc = lsm_delete_range(db, key1.data, key1.len, key2.data, key2.len);
    if (rc != LSM_OK)
       throw LSMException("Failed to erase range (" + errorString(rc) + ")");
@@ -372,6 +398,10 @@ void LSM::eraseBetween(
 
 std::string LSM::value(const CharacterArrayRef& key) const
 {
+#ifdef LSM_THREADCHECK
+   if (!pthread_equal(thread, pthread_self()))
+      throw std::runtime_error("Used LSM on two threads");
+#endif
    Iterator c = cursor();
    c.seek(key);
    if (!c.isValid())
