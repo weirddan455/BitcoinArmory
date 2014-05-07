@@ -7,10 +7,14 @@
 #include <pthread.h>
 
 
+
 //#define LSM_THREADCHECK
 
 struct lsm_db;
 struct lsm_cursor;
+
+
+std::string toStringFormatted(const std::string &s);
 
 // this exception is thrown for all errors from LSM
 class LSMException : public std::runtime_error
@@ -49,7 +53,6 @@ class LSM
    lsm_db *db;
    int transactionLevel;
    pthread_t thread;
-
 public:
    // this class can be used like a C++ iterator,
    // or you can just use isValid() to test for "last item"
@@ -57,7 +60,7 @@ public:
    {
       friend class LSM;
       
-      lsm_db *db;
+      const LSM *db;
       // this complexity is caused because we want
       // returning Cursors to be real fast. We could
       // remove it in C++11 with Move operators
@@ -79,7 +82,7 @@ public:
       
       void checkOk() const;
       
-      Iterator(lsm_db *db);
+      Iterator(const LSM *db);
       
    public:
       Iterator();
@@ -133,7 +136,7 @@ public:
       Iterator& operator++() { advance(); return *this; }
       void advance();
       // advance this iterator "count" times
-      void advance(int count);
+      //void advance(int count);
       
       // seek this iterator to the first sequence
       void toFirst();
@@ -210,7 +213,7 @@ public:
       if (!pthread_equal(thread, pthread_self()))
          throw std::runtime_error("Used LSM on two threads");
 #endif
-      Iterator c(db);
+      Iterator c(this);
       c.toFirst();
       return c;
    }
@@ -221,7 +224,7 @@ public:
       if (!pthread_equal(thread, pthread_self()))
          throw std::runtime_error("Used LSM on two threads");
 #endif
-      Iterator c(db);
+      Iterator c(this);
       return c;
    }
    

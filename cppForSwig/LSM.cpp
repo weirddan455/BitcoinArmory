@@ -1,8 +1,39 @@
-#include "LSM.h"
+#include "LSM.h"    
 
 #include <lsm.h>
 
+#include <sstream>
+
+#include "BinaryData.h"
+
 //#define DISABLE_TRANSACTIONS
+
+#define LSM_TRACE
+
+#ifdef LSM_TRACE
+#include <fstream>
+static std::map<const LSM*, unsigned> dbToIndex;
+static unsigned numDbs=0;
+static std::ofstream trace;
+
+static unsigned dbNumFor(const LSM *lsm)
+{
+   const std::map<const LSM*, unsigned>::iterator i = dbToIndex.find(lsm);
+   if (i == dbToIndex.end())
+   {
+      const unsigned v = numDbs++;
+      dbToIndex[lsm] = v;
+      return v;
+   }
+   else
+   {
+      return i->second;
+   }
+}
+
+#endif
+
+
 
 static std::string errorString(int rc)
 {
@@ -30,6 +61,47 @@ static std::string errorString(int rc)
       return "Unknown Error";
 }
 
+std::string toStringFormatted(const std::string &s)
+{
+   std::string out;
+   out.reserve(s.length()*3);
+   
+   for (size_t i=0; i < s.size(); i++)
+   {
+      const unsigned char c = s[i];
+      
+      if (c == 0)
+         out += "\\0";
+      else if (std::isalnum(c))
+         out += c;
+      else
+      {
+         out += "\\x";
+         if (c <= 0xf)
+            out += '0';
+         std::ostringstream ss;
+         ss << std::hex << (unsigned)c;
+         out += ss.str();
+      }
+   }
+   return out;
+}
+/*
+class X
+{
+public:
+   X()
+   {
+      std::string hex = "4e07c7c8158d897361f24ee70efe01a1e09a0a45acf9499c0339d701202d810f";
+      hex = BinaryData::CreateFromHex(hex).toBinStr();
+      
+      std::cout << toStringFormatted(hex);
+   }
+};
+
+X x;
+*/
+
 void LSM::Iterator::reset()
 {
    if (shared)
@@ -38,6 +110,10 @@ void LSM::Iterator::reset()
       
       if (shared->sharedCount==0)
       {
+#ifdef LSM_TRACE
+         trace << dbNumFor(db) << " csr_close " << (void*)shared->csr
+            << std::endl;
+#endif
          lsm_csr_close(shared->csr);
          delete shared;
       }
@@ -65,17 +141,30 @@ void LSM::Iterator::detach()
       
       if (isValid())
       {
-         int rc = lsm_csr_open(db, &another->csr);
+         int rc = lsm_csr_open(db->db, &another->csr);
+#ifdef LSM_TRACE
+         trace << dbNumFor(db) << " csr_open " << (void*)another->csr 
+            << std::endl;
+#endif
          if (rc != LSM_OK)
             throw std::runtime_error("Failed to create cursor (" + errorString(rc) + ")");
             
-            
          const void *key;
          int len;
+#ifdef LSM_TRACE
+         trace << dbNumFor(db) << " csr_key " << (void*)another->csr
+            << std::endl;
+#endif
          rc = lsm_csr_key(shared->csr, &key, &len);
          if (rc != LSM_OK)
             throw std::runtime_error("Failed to read old cursor (" + errorString(rc) + ")");
-         rc = lsm_csr_seek(another->csr, key, len, LSM_SEEK_EQ);
+#ifdef LSM_TRACE
+         trace << dbNumFor(db) << " csr_seek " << (void*)another->csr << " "
+            << toStringFormatted(std::string(static_cast<const char*>(key), len))
+            << " ge"
+            << std::endl;
+#endif
+         rc = lsm_csr_seek(another->csr, key, len, LSM_SEEK_GE);
          if (rc != LSM_OK)
             throw std::runtime_error("Failed to seek new cursor (" + errorString(rc) + ")");
       }
@@ -90,13 +179,17 @@ void LSM::Iterator::detach()
    }
 }
 
-LSM::Iterator::Iterator(lsm_db *db)
+LSM::Iterator::Iterator(const LSM *db)
    : db(db)
 {
    shared = new SharedCsr;
    try
    {
-      int rc = lsm_csr_open(db, &shared->csr);
+      int rc = lsm_csr_open(db->db, &shared->csr);
+#ifdef LSM_TRACE
+      trace << dbNumFor(db) << " csr_open " << (void*)shared->csr
+         << std::endl;
+#endif
       if (rc != LSM_OK)
          throw std::runtime_error("Failed to create cursor (" + errorString(rc) + ")");
 
@@ -160,6 +253,10 @@ bool LSM::Iterator::operator==(const Iterator &other) const
 bool LSM::Iterator::isValid() const
 {
    if (!shared) return false;
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " csr_valid " << (void*)shared->csr 
+      << std::endl;
+#endif
    return !!lsm_csr_valid(shared->csr);
 }
 
@@ -167,24 +264,37 @@ void LSM::Iterator::advance()
 {
    checkOk();
    detach();
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " csr_next " << (void*)shared->csr 
+      << std::endl;
+#endif
    int rc = lsm_csr_next(shared->csr);
    if (rc != LSM_OK)
       throw std::runtime_error("Failed to advance cursor (" + errorString(rc) + ")");
 }
+/*
 void LSM::Iterator::advance(int c)
 {
    checkOk();
    detach();
    while (c--)
    {
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " csr_next " << (void*)shared->csr 
+      << std::endl;
+#endif
       lsm_csr_next(shared->csr);
    }
 }
-
+*/
 void LSM::Iterator::toFirst()
 {
    checkOk();
    detach();
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " csr_first " << (void*)shared->csr 
+      << std::endl;
+#endif
    int rc = lsm_csr_first(shared->csr);
    if (rc != LSM_OK)
       throw std::runtime_error("Failed to seek cursor to first (" + errorString(rc) + ")");
@@ -194,26 +304,52 @@ void LSM::Iterator::seek(const CharacterArrayRef &key, SeekBy e)
 {
    checkOk();
    detach();
+   const char *ds="?";
    int le = LSM_SEEK_GE;
    if (e == Seek_EQ)
+   {
+      ds = "ge";
       le = LSM_SEEK_GE;
+   }
    else if (e == Seek_LE)
+   {
+      ds = "le";
       le = LSM_SEEK_LE;
+   }
    else if (e == Seek_GE)
+   {
+      ds = "ge";
       le = LSM_SEEK_GE;
+   }
    
-   
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " csr_seek " << (void*)shared->csr << " "
+      << toStringFormatted(std::string(key.data, key.len))
+      << " " << ds
+      << std::endl;
+#endif
    int rc = lsm_csr_seek(shared->csr, key.data, key.len, le);
    if (rc != LSM_OK)
       throw std::runtime_error("Failed to seek cursor (" + errorString(rc) + ")");
    
    if (e == Seek_EQ)
    {
+#ifdef LSM_TRACE
+      trace << dbNumFor(db) << " csr_cmp " << (void*)shared->csr << " "
+         << toStringFormatted(std::string(key.data, key.len))
+         << std::endl;
+#endif
       int r;
       // advance() doesn't work if we don't use SEEK_GE, so we always do
       lsm_csr_cmp(shared->csr, key.data, key.len, &r);
       if (r != 0)
       {
+#ifdef LSM_TRACE
+         trace << dbNumFor(db) << " csr_seek " << (void*)shared->csr << " "
+            << toStringFormatted(std::string(key.data, key.len))
+            << " eq"
+            << std::endl;
+#endif
          // invalidate the search if we don't match
          lsm_csr_seek(shared->csr, key.data, key.len, LSM_SEEK_EQ);
       }
@@ -225,6 +361,10 @@ std::string LSM::Iterator::key() const
    checkOk();
    const void *key;
    int len;
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " csr_key " << (void*)shared->csr
+      << std::endl;
+#endif
    int rc = lsm_csr_key(shared->csr, &key, &len);
    if (rc != LSM_OK)
       throw std::runtime_error("Failed to read cursor key (" + errorString(rc) + ")");
@@ -236,6 +376,10 @@ std::string LSM::Iterator::value() const
    checkOk();
    const void *val;
    int len;
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " csr_value " << (void*)shared->csr
+      << std::endl;
+#endif
    int rc = lsm_csr_value(shared->csr, &val, &len);
    if (rc != LSM_OK)
       throw std::runtime_error("Failed to read cursor value (" + errorString(rc) + ")");
@@ -262,6 +406,9 @@ void LSM::Transaction::commit()
       throw std::runtime_error("Cannot commit the non topmost transaction");
    
 #ifndef DISABLE_TRANSACTIONS
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " commit " << myLevel << std::endl;
+#endif
    int rc = lsm_commit(db->db, myLevel);
    
    if (rc != LSM_OK)
@@ -279,6 +426,9 @@ void LSM::Transaction::rollback()
       throw std::runtime_error("Cannot rollback the non topmost transaction");
    
 #ifndef DISABLE_TRANSACTIONS
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " rollback " << myLevel << std::endl;
+#endif
    int rc = lsm_rollback(db->db, myLevel);
    
    if (rc != LSM_OK)
@@ -295,7 +445,11 @@ void LSM::Transaction::begin()
    
    myLevel = db->transactionLevel++;
 #ifndef DISABLE_TRANSACTIONS
-   int rc = lsm_begin(db->db, myLevel);
+#ifdef LSM_TRACE
+   trace << dbNumFor(db) << " begin " << (myLevel+1) << std::endl;
+#endif
+
+   int rc = lsm_begin(db->db, myLevel+1);
    if (rc != LSM_OK)
    {
       myLevel = -1;
@@ -337,12 +491,23 @@ void LSM::open(const char *filename)
 #ifdef LSM_THREADCHECK
    thread = pthread_self();
 #endif
+#ifdef LSM_TRACE
+   if (!trace.is_open())
+   {
+      trace.open( (filename + std::string(".trace")).c_str(), std::ios::app);
+   }
+   trace << dbNumFor(this) << " open" << std::endl;
+#endif
 }
 
 void LSM::close()
 {
    if (db)
    {
+#ifdef LSM_TRACE
+      trace << dbNumFor(this) << " close" << std::endl;
+      trace.close();
+#endif
       int rc = lsm_close(db);
       if (rc != LSM_OK)
       {
@@ -365,6 +530,14 @@ void LSM::insert(
    if (!pthread_equal(thread, pthread_self()))
       throw std::runtime_error("Used LSM on two threads");
 #endif
+#ifdef LSM_TRACE
+   trace << dbNumFor(this) << " insert "
+      << toStringFormatted(std::string(static_cast<const char*>(key.data), key.len))
+      << " "
+      << toStringFormatted(std::string(static_cast<const char*>(value.data), value.len))
+      << std::endl;
+#endif
+
    int rc = lsm_insert(db, key.data, key.len, value.data, value.len);
    if (rc != LSM_OK)
       throw LSMException("Failed to insert (" + errorString(rc) + ")");
@@ -375,6 +548,11 @@ void LSM::erase(const CharacterArrayRef& key)
 #ifdef LSM_THREADCHECK
    if (!pthread_equal(thread, pthread_self()))
       throw std::runtime_error("Used LSM on two threads");
+#endif
+#ifdef LSM_TRACE
+   trace << dbNumFor(this) << " delete "
+      << toStringFormatted(std::string(static_cast<const char*>(key.data), key.len))
+      << std::endl;
 #endif
    int rc = lsm_delete(db, key.data, key.len);
    if (rc != LSM_OK)
@@ -390,6 +568,12 @@ void LSM::eraseBetween(
 #ifdef LSM_THREADCHECK
    if (!pthread_equal(thread, pthread_self()))
       throw std::runtime_error("Used LSM on two threads");
+#endif
+#ifdef LSM_TRACE
+   trace << dbNumFor(this) << " delete_range "
+      << toStringFormatted(std::string(static_cast<const char*>(key1.data), key1.len))
+      << toStringFormatted(std::string(static_cast<const char*>(key2.data), key2.len))
+      << std::endl;
 #endif
    int rc = lsm_delete_range(db, key1.data, key1.len, key2.data, key2.len);
    if (rc != LSM_OK)

@@ -2453,7 +2453,8 @@ void BlockDataManager_LevelDB::readRawBlocksInFile(uint32_t fnum, uint32_t foffs
    bool breakbreak = false;
    uint32_t locInBlkFile = foffset;
 
-   LSM::Transaction batch(&iface_->dbs_[BLKDATA]);
+   LSM::Transaction batchB(&iface_->dbs_[BLKDATA]);
+   LSM::Transaction batchH(&iface_->dbs_[HEADERS]);
 
    unsigned failedAttempts=0;
    
@@ -2528,8 +2529,10 @@ void BlockDataManager_LevelDB::readRawBlocksInFile(uint32_t fnum, uint32_t foffs
          if(dbUpdateSize>BlockWriteBatcher::UPDATE_BYTES_THRESH)
          {
             dbUpdateSize = 0;
-            batch.commit();
-            batch.begin();
+            batchB.commit();
+            batchB.begin();
+            batchH.commit();
+            batchH.begin();
          }
 
          blocksReadSoFar_++;

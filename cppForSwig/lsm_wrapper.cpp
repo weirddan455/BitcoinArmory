@@ -728,7 +728,13 @@ bool LsmBlockDatabase::seekToTxByHash(LDBIter & ldbIter, BinaryDataRef txHash) c
    {
       BinaryDataRef hint = sths.getHint(i);
       ldbIter.seekTo(DB_PREFIX_TXDATA, hint);
-      
+      {
+         BinaryWriter bw(hint.getSize() + 1);
+         bw.put_uint8_t((uint8_t)DB_PREFIX_TXDATA);
+         bw.put_BinaryData(hint);
+         
+         std::cerr << "Seeking to " << toStringFormatted(bw.getDataRef().toBinStr()) << std::endl;
+      }
       // We don't actually know for sure whether the seekTo() found a Tx or TxOut
       if(hint != ldbIter.getKeyRef().getSliceRef(1,6))
       {
@@ -2251,7 +2257,7 @@ TxRef LsmBlockDatabase::getTxRef( BinaryDataRef txHash )
       return TxRef(ldbIter.getKeyReader().get_BinaryDataRef(6), this);
    }
    
-   throw runtime_error("No txref with that hash");
+   throw runtime_error("No txref with hash" + txHash.toHexStr());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
