@@ -506,7 +506,6 @@ void LSM::close()
    {
 #ifdef LSM_TRACE
       trace << dbNumFor(this) << " close" << std::endl;
-      trace.close();
 #endif
       int rc = lsm_close(db);
       if (rc != LSM_OK)
