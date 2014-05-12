@@ -509,7 +509,7 @@ BinaryDataRef LsmBlockDatabase::getValueRef(DB_SELECT db, BinaryDataRef key) con
    {
       lastGetValue_ = getValue(db, key);
    }
-   catch (...)
+   catch (NoValue &)
    {
       lastGetValue_ = BinaryData();
    }
@@ -1214,6 +1214,9 @@ uint8_t LsmBlockDatabase::putBareHeader(StoredHeader & sbh)
       return UINT8_MAX;
    }
 
+   // Batch the two operations to make sure they both hit the DB, or neither 
+   LSM::Transaction tx(&dbs_[HEADERS]);
+
    StoredDBInfo sdbiH;
    getStoredDBInfo(HEADERS, sdbiH);
 
@@ -1267,8 +1270,6 @@ uint8_t LsmBlockDatabase::putBareHeader(StoredHeader & sbh)
 
    sbh.setKeyData(height, sbhDupID);
    
-   // Batch the two operations to make sure they both hit the DB, or neither 
-   LSM::Transaction tx(&dbs_[HEADERS]);
 
    if(needToWriteHHL)
       putStoredHeadHgtList(hhl);

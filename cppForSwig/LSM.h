@@ -10,10 +10,6 @@
 
 //#define LSM_THREADCHECK
 
-struct lsm_db;
-struct lsm_cursor;
-
-
 std::string toStringFormatted(const std::string &s);
 
 // this exception is thrown for all errors from LSM
@@ -22,6 +18,14 @@ class LSMException : public std::runtime_error
 public:
    LSMException(const std::string &what)
       : std::runtime_error(what)
+   { }
+};
+
+class NoValue : public LSMException
+{
+public:
+   NoValue(const std::string &what)
+      : LSMException(what)
    { }
 };
 
@@ -50,8 +54,8 @@ public:
 
 class LSM
 {
-   lsm_db *db;
-   int transactionLevel;
+   void *db, *env;
+   unsigned transactionLevel;
    pthread_t thread;
 public:
    // this class can be used like a C++ iterator,
@@ -66,21 +70,20 @@ public:
       // remove it in C++11 with Move operators
       struct SharedCsr
       {
-         lsm_cursor *csr;
+         void *csr;
          // the number of Iterator objects point to this SharedCsr
          unsigned sharedCount;
          SharedCsr()
-            : csr(0), sharedCount(0)
+            : csr(0), sharedCount(1)
          { }
       };
       
       SharedCsr *shared;
       
       void reset();
-      // make it so that sharedCount==1
-      void detach();
-      
+      void checkHasDb() const;
       void checkOk() const;
+      void detach();
       
       Iterator(const LSM *db);
       
@@ -104,8 +107,6 @@ public:
       
       enum SeekBy
       {
-         Seek_EQ,
-         Seek_LE,
          Seek_GE
       };
       
@@ -124,10 +125,10 @@ public:
       // Implementation detail: Seek_EQ in this class is not
       // functionally identical to LSM_SEEK_EQ - LSM_SEEK_EQ's iterator
       // cannot be advanced, but Seek_EQ can.
-      void seek(const CharacterArrayRef &key, SeekBy e = Seek_EQ);
+      void seek(const CharacterArrayRef &key, SeekBy e = Seek_GE);
       
       // is the cursor pointing to a valid location?
-      bool isValid() const;
+      bool isValid() const { return !!shared; }
       operator bool() const { return isValid(); }
       bool isEOF() const { return !isValid(); }
 
@@ -155,7 +156,7 @@ public:
    class Transaction
    {
       LSM *db;
-      int myLevel;
+      unsigned myLevel;
    public:
       // begin a transaction
       Transaction(LSM *db);
@@ -196,12 +197,6 @@ public:
    // if such a key does not exist
    void erase(const CharacterArrayRef& key);
 
-   // delete all entries between key1 and key2, but not key1 and key2
-   void eraseBetween(
-      const CharacterArrayRef& key1,
-      const CharacterArrayRef& key2
-   );
-   
    // read the value having the given key
    std::string value(const CharacterArrayRef& key) const;
    

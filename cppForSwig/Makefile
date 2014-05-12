@@ -21,7 +21,7 @@ OBJS = UniversalTimer.o BinaryData.o lsm_wrapper.o StoredBlockObj.o \
 	BtcUtils.o BlockObj.o BlockUtils.o EncryptionUtils.o Util.o \
 	BtcWallet.o LedgerEntry.o ScrAddrObj.o Blockchain.o BlockWriteBatcher.o \
 	BDM_mainthread.o LSM.o \
-	libcryptopp.a $(SQLITE4_PATH)/libsqlite4.a
+	libcryptopp.a $(SOPHIA_PATH)/db/libsophia.a
 
 #if python is specified, use it
 ifndef PYVER
@@ -31,7 +31,7 @@ else
 PYTHON_INCLUDES=$(shell $(PYVER)-config --includes )
 endif
 
-CPPFLAGS += $(ARMORY_CPPFLAGS) -Icryptopp -Ileveldb/include -DUSE_CRYPTOPP -D__STDC_LIMIT_MACROS -I$(SQLITE4_PATH) -I$(SQLITE4_PATH)/src
+CPPFLAGS += $(ARMORY_CPPFLAGS) -Icryptopp -Ileveldb/include -DUSE_CRYPTOPP -D__STDC_LIMIT_MACROS -I$(SOPHIA_PATH)/db
 LDLIBS += -lpthread -Lleveldb
 SWIG_OPTS    += -c++ -python -classic -threads
 
@@ -77,7 +77,7 @@ playground: ../_CppBlockUtils.so playground.cpp $(ALL_HEADERS)
 	$(CXX) $(CXXCPP) $(CXXFLAGS) $(LDFLAGS) $(shell $(PYVER)-config --libs) -Wl,-rpath,$(PWD)/.. ../_CppBlockUtils.so -o playground playground.cpp
 
 lsmlook: lsmlook.cpp LSM.o LSM.h
-	$(CXX) $(LDLIBS) $(CXXCPP) $(CXXFLAGS) $(LDFLAGS) -lreadline -o lsmlook lsmlook.cpp LSM.o $(SQLITE4_PATH)/libsqlite4.a
+	$(CXX) $(LDLIBS) $(CXXCPP) $(CXXFLAGS) $(LDFLAGS) -lreadline -o lsmlook lsmlook.cpp LSM.o $(SOPHIA_PATH)/db/libsophia.a
 
 ##########################################################################
 # And now we have created all the individual object files specified with 

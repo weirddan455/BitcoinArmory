@@ -2658,13 +2658,13 @@ void BlockDataManager_LevelDB::deleteHistories(void)
 {
    SCOPED_TIMER("deleteHistories");
 
+   LSM::Transaction batch(&iface_->dbs_[BLKDATA]);
    LDBIter ldbIter = iface_->getIterator(BLKDATA);
 
    if(!ldbIter.seekToStartsWith(DB_PREFIX_SCRIPT, BinaryData(0)))
       return;
 
    //////////
-   LSM::Transaction batch(&iface_->dbs_[BLKDATA]);
 
    do 
    {
