@@ -74,7 +74,6 @@ void LSM::Iterator::reset()
       
       if (shared->sharedCount==0)
       {
-         sp_destroy(shared->csr);
          delete shared;
       }
    }
@@ -103,21 +102,7 @@ void LSM::Iterator::detach()
    if (!shared || shared->sharedCount==1)
       return;
    
-   SharedCsr *another = new SharedCsr;
-   try
-   {
-      if (isValid())
-      {
-         throw std::logic_error("unimplemented");
-      }
-      shared->sharedCount--;
-      shared = another;
-   }
-   catch (...)
-   {
-      delete another;
-      throw;
-   }
+   throw std::logic_error("unimplemented");
 }
 
 LSM::Iterator::Iterator(const LSM *db)
@@ -176,17 +161,9 @@ bool LSM::Iterator::operator==(const Iterator &other) const
 void LSM::Iterator::advance()
 {
    checkOk();
-   detach();
-   
-#ifdef LSM_TRACE
-   trace << dbNumFor(db) << " csr_next " << (void*)shared->csr 
-      << std::endl;
-#endif
-   int rc = sp_fetch(shared->csr);
-   if (rc == 0)
-   {
-      reset();
-   }
+   const std::string key = shared->key();
+   reset();
+   seek(CharacterArrayRef(key.data(), key.length()), Seek_GT);
 }
 
 void LSM::Iterator::toFirst()
@@ -200,40 +177,45 @@ void LSM::Iterator::seek(const CharacterArrayRef &key, SeekBy e)
 {
    checkHasDb();
    reset();
-   shared = new SharedCsr;
    
-   shared->csr = sp_cursor(db->db, SPGTE, key.data, key.len);
-   if (!shared->csr)
+   sporder order = SPGTE;
+   if (e == Seek_GT)
+      order = SPGT;
+   
+   void *csr = sp_cursor(db->db, order, key.data, key.len);
+   if (!csr)
+      throw LSMException("failed to open cursor (" + errorString(db->db) + ")");
+   
+   int rc = sp_fetch(csr);
+   if (rc == 1)
    {
-      LSMException e("Failed to open cursor " + errorString(db->env));
-      reset();
-      throw e;
+      shared = new SharedCsr;
+      const char *key = sp_key(csr);
+      size_t keysize = sp_keysize(csr);
+      shared->key = std::string(key, keysize);
+      const char *val = sp_val(csr);
+      size_t valsize = sp_valsize(csr);
+      shared->val = std::string(val, valsize);
+   }
+   else if (rc == -1)
+   {
+      sp_destroy(csr);
+      throw LSMException("Faild to fetch cursor data");
    }
    
-   int rc = sp_fetch(shared->csr);
-   if (rc == 0)
-   {
-      // no value found
-      reset();
-   }
+   sp_destroy(csr);
 }
 
 std::string LSM::Iterator::key() const
 {
    checkOk();
-   const char *key = sp_key(shared->csr);
-   size_t keysize = sp_keysize(shared->csr);
-   
-   return std::string(key, keysize);
+   return shared->key;
 }
 
 std::string LSM::Iterator::value() const
 {
    checkOk();
-   const char *value = sp_value(shared->csr);
-   size_t valuesize = sp_valuesize(shared->csr);
-   
-   return std::string(value, valuesize);
+   return shared->value;
 }
 
 

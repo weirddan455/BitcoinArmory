@@ -70,11 +70,11 @@ public:
       // remove it in C++11 with Move operators
       struct SharedCsr
       {
-         void *csr;
          // the number of Iterator objects point to this SharedCsr
          unsigned sharedCount;
+         std::string key, val;
          SharedCsr()
-            : csr(0), sharedCount(1)
+            : sharedCount(1)
          { }
       };
       
@@ -107,7 +107,8 @@ public:
       
       enum SeekBy
       {
-         Seek_GE
+         Seek_GE,
+         Seek_GT
       };
       
       // move this iterator such that, if the exact key is not found:
