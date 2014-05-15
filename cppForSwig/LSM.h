@@ -63,27 +63,12 @@ public:
    class Iterator
    {
       friend class LSM;
-      
       const LSM *db;
-      // this complexity is caused because we want
-      // returning Cursors to be real fast. We could
-      // remove it in C++11 with Move operators
-      struct SharedCsr
-      {
-         // the number of Iterator objects point to this SharedCsr
-         unsigned sharedCount;
-         std::string key, val;
-         SharedCsr()
-            : sharedCount(1)
-         { }
-      };
+      std::string key_, val_;
+      bool has_;
       
-      SharedCsr *shared;
-      
-      void reset();
       void checkHasDb() const;
       void checkOk() const;
-      void detach();
       
       Iterator(const LSM *db);
       
@@ -129,7 +114,7 @@ public:
       void seek(const CharacterArrayRef &key, SeekBy e = Seek_GE);
       
       // is the cursor pointing to a valid location?
-      bool isValid() const { return !!shared; }
+      bool isValid() const { return has_; }
       operator bool() const { return isValid(); }
       bool isEOF() const { return !isValid(); }
 

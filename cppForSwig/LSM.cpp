@@ -8,10 +8,12 @@
 
 //#define DISABLE_TRANSACTIONS
 
-#define LSM_TRACE
+//#define LSM_TRACE
 
 #ifdef LSM_TRACE
 #include <fstream>
+unsigned traceNum=0;
+unsigned numOpen=0;
 static std::map<const LSM*, unsigned> dbToIndex;
 static unsigned numDbs=0;
 static std::ofstream trace;
@@ -37,7 +39,8 @@ static unsigned dbNumFor(const LSM *lsm)
 
 static std::string errorString(void *env)
 {
-   return sp_error(env);
+   const char *s = sp_error(env);
+   return s ? s : "Unknown error";
 }
 
 std::string toStringFormatted(const std::string &s)
@@ -66,20 +69,6 @@ std::string toStringFormatted(const std::string &s)
    return out;
 }
 
-void LSM::Iterator::reset()
-{
-   if (shared)
-   {
-      shared->sharedCount--;
-      
-      if (shared->sharedCount==0)
-      {
-         delete shared;
-      }
-   }
-   shared = 0;
-}
-
 inline void LSM::Iterator::checkHasDb() const
 {
    if (!db)
@@ -97,16 +86,8 @@ inline void LSM::Iterator::checkOk() const
    }
 }
 
-void LSM::Iterator::detach()
-{
-   if (!shared || shared->sharedCount==1)
-      return;
-   
-   throw std::logic_error("unimplemented");
-}
-
 LSM::Iterator::Iterator(const LSM *db)
-   : db(db), shared(0)
+   : db(db), has_(false)
 {
 
 }
@@ -114,20 +95,19 @@ LSM::Iterator::Iterator(const LSM *db)
 LSM::Iterator::Iterator()
 {
    db = 0;
-   shared = 0;
+   has_ = false;
 }
 
 LSM::Iterator::~Iterator()
 {
-   reset();
 }
 
 LSM::Iterator::Iterator(const Iterator &copy)
 {
    db = copy.db;
-   shared = copy.shared;
-   if (shared)
-      shared->sharedCount++;
+   key_ = copy.key_;
+   val_ = copy.val_;
+   has_ = copy.has_;
 }
 
 LSM::Iterator& LSM::Iterator::operator=(const Iterator &copy)
@@ -135,11 +115,10 @@ LSM::Iterator& LSM::Iterator::operator=(const Iterator &copy)
    if (this == &copy)
       return *this;
    
-   reset();
    db = copy.db;
-   shared = copy.shared;
-   if (shared)
-      shared->sharedCount++;
+   key_ = copy.key_;
+   val_ = copy.val_;
+   has_ = copy.has_;
    return *this;
 }
 
@@ -161,22 +140,19 @@ bool LSM::Iterator::operator==(const Iterator &other) const
 void LSM::Iterator::advance()
 {
    checkOk();
-   const std::string key = shared->key();
-   reset();
-   seek(CharacterArrayRef(key.data(), key.length()), Seek_GT);
+   seek(CharacterArrayRef(key_.length(), key_.data()), Seek_GT);
 }
 
 void LSM::Iterator::toFirst()
 {
    checkHasDb();
-   reset();
    seek(CharacterArrayRef(0, (char*)0), Seek_GE);
 }
 
 void LSM::Iterator::seek(const CharacterArrayRef &key, SeekBy e)
 {
    checkHasDb();
-   reset();
+   has_ = false;
    
    sporder order = SPGTE;
    if (e == Seek_GT)
@@ -189,13 +165,13 @@ void LSM::Iterator::seek(const CharacterArrayRef &key, SeekBy e)
    int rc = sp_fetch(csr);
    if (rc == 1)
    {
-      shared = new SharedCsr;
       const char *key = sp_key(csr);
       size_t keysize = sp_keysize(csr);
-      shared->key = std::string(key, keysize);
-      const char *val = sp_val(csr);
-      size_t valsize = sp_valsize(csr);
-      shared->val = std::string(val, valsize);
+      key_ = std::string(key, keysize);
+      const char *val = sp_value(csr);
+      size_t valsize = sp_valuesize(csr);
+      val_ = std::string(val, valsize);
+      has_ = true;
    }
    else if (rc == -1)
    {
@@ -209,13 +185,13 @@ void LSM::Iterator::seek(const CharacterArrayRef &key, SeekBy e)
 std::string LSM::Iterator::key() const
 {
    checkOk();
-   return shared->key;
+   return key_;
 }
 
 std::string LSM::Iterator::value() const
 {
    checkOk();
-   return shared->value;
+   return val_;
 }
 
 
@@ -234,44 +210,34 @@ void LSM::Transaction::commit()
 {
    if (myLevel == 0)
       return;
-   if (myLevel != db->transactionLevel)
-      throw std::runtime_error("Cannot commit the non topmost transaction");
 
    if (myLevel == 1)
    {
-#ifndef DISABLE_TRANSACTIONS
-#ifdef LSM_TRACE
-      trace << dbNumFor(db) << " commit " << myLevel << std::endl;
-#endif
       int rc = sp_commit(db->db);
       
       if (rc == -1)
          throw std::runtime_error("Failed to commit transaction (" + errorString(db->env) + ")");
-#endif
       myLevel = 0;
    }
-   db->transactionLevel--;
 }
 void LSM::Transaction::rollback()
 {
    if (myLevel == 0)
       return;
+   
+   throw std::runtime_error("unimplemented");
    if (myLevel != 1)
       throw std::runtime_error("Cannot rollback the non-deepest transaction");
    
    if (myLevel == 1)
    {
-#ifndef DISABLE_TRANSACTIONS
-#ifdef LSM_TRACE
-      trace << dbNumFor(db) << " rollback " << myLevel << std::endl;
-#endif
       int rc = sp_rollback(db->db);
    
       if (rc == -1)
          throw std::runtime_error("Failed to rollback transaction (" + errorString(db->env) + ")");
-#endif
       myLevel = 0;
    }
+   myLevel = 0;
    db->transactionLevel--;
 }
 
@@ -281,7 +247,6 @@ void LSM::Transaction::begin()
       return;
    
    myLevel = ++db->transactionLevel;
-#ifndef DISABLE_TRANSACTIONS
 
    if (myLevel == 1)
    {
@@ -296,7 +261,6 @@ void LSM::Transaction::begin()
          throw std::runtime_error("Failed to begin transaction (" + errorString(db->env) + ")");
       }
    }
-#endif
 }
 
 
@@ -314,7 +278,17 @@ LSM::~LSM()
 
 void LSM::open(const char *filename)
 {
-   if (db)
+#ifdef LSM_TRACE
+   numOpen++;
+   if (!trace.is_open())
+   {
+      std::ostringstream ss;
+      ss << "/tmp/sophia.trace." << (traceNum++);
+      trace.open(ss.str().c_str());
+   }
+#endif
+
+   if (env)
       throw std::logic_error("Database object already open (close it first)");
 
    transactionLevel=0;
@@ -329,32 +303,30 @@ void LSM::open(const char *filename)
    if (rc == -1)
       throw LSMException("Failed to load LSM (" + errorString(env) + ")");
 
+#ifdef LSM_TRACE
+   trace << dbNumFor(this) << " open "
+      << std::endl;
+#endif
    db = sp_open(env);
    
    if (!db)
+   {
+      sp_destroy(env);
+      env = 0;
       throw LSMException("Failed to open " + std::string(filename)
          + " ("+ errorString(env) + ")");
-
-#ifdef LSM_THREADCHECK
-   thread = pthread_self();
-#endif
-#ifdef LSM_TRACE
-   if (!trace.is_open())
-   {
-      trace.open( (filename + std::string(".trace")).c_str(), std::ios::app);
    }
-   trace << dbNumFor(this) << " open" << std::endl;
-#endif
 }
 
 void LSM::close()
 {
    if (db)
    {
-#ifdef LSM_TRACE
-      trace << dbNumFor(this) << " close" << std::endl;
-#endif
       int rc;
+#ifdef LSM_TRACE
+      trace << dbNumFor(this) << " close "
+         << std::endl;
+#endif
       rc = sp_destroy(db);
       if (rc == -1)
          throw LSMException("LSM failed to close");
@@ -362,8 +334,15 @@ void LSM::close()
       if (rc == -1)
          throw LSMException("LSM failed to destroy env");
       db = 0;
+      env = 0;
       thread = 0;
    }
+
+#ifdef LSM_TRACE
+   numOpen--;
+   if (numOpen==0)
+      trace.close();
+#endif
 }
 
 void LSM::insert(
@@ -371,18 +350,6 @@ void LSM::insert(
    const CharacterArrayRef& value
 )
 {
-#ifdef LSM_THREADCHECK
-   if (!pthread_equal(thread, pthread_self()))
-      throw std::runtime_error("Used LSM on two threads");
-#endif
-#ifdef LSM_TRACE
-   trace << dbNumFor(this) << " insert "
-      << toStringFormatted(std::string(static_cast<const char*>(key.data), key.len))
-      << " "
-      << toStringFormatted(std::string(static_cast<const char*>(value.data), value.len))
-      << std::endl;
-#endif
-
    int rc = sp_set(db, key.data, key.len, value.data, value.len);
    if (rc == -1)
       throw LSMException("Failed to insert (" + errorString(env) + ")");
@@ -390,10 +357,6 @@ void LSM::insert(
 
 void LSM::erase(const CharacterArrayRef& key)
 {
-#ifdef LSM_THREADCHECK
-   if (!pthread_equal(thread, pthread_self()))
-      throw std::runtime_error("Used LSM on two threads");
-#endif
 #ifdef LSM_TRACE
    trace << dbNumFor(this) << " delete "
       << toStringFormatted(std::string(static_cast<const char*>(key.data), key.len))
@@ -407,18 +370,24 @@ void LSM::erase(const CharacterArrayRef& key)
 
 std::string LSM::value(const CharacterArrayRef& key) const
 {
-#ifdef LSM_THREADCHECK
-   if (!pthread_equal(thread, pthread_self()))
-      throw std::runtime_error("Used LSM on two threads");
+   void* res;
+   size_t rs;
+#ifdef LSM_TRACE
+   trace << dbNumFor(this) << " get "
+      << toStringFormatted(std::string(static_cast<const char*>(key.data), key.len))
+      << std::endl;
 #endif
-   Iterator c = cursor();
-   c.seek(key);
-   if (!c.isValid())
-      throw NoValue("No such value with specified key");
-   if (c.key() !=  std::string(key.data, key.len))
-      throw NoValue("No such value with specified key");
    
-   return c.value();
+   int rc = sp_get(db, key.data, key.len, &res, &rs);
+
+   if (rc == 0)
+      throw NoValue("No such value with specified key");
+   else if (rc == -1)
+      throw LSMException("Failed to search (" + errorString(env) + ")");
+
+   std::string s(static_cast<char*>(res), rs);
+   free(res);
+   return s;
 }
 
 // kate: indent-width 3; replace-tabs on;
