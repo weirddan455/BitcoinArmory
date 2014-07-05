@@ -5878,6 +5878,7 @@ bool BlockDataManager_LevelDB::addNewZeroConfTx(BinaryData const & rawTx,
                                                 bool writeToFile)
 {
    SCOPED_TIMER("addNewZeroConfTx");
+   TIMER_RESTART("addNewZeroConfTx");
 
    if(txtime==0)
       txtime = (uint32_t)time(NULL);
@@ -5903,11 +5904,18 @@ bool BlockDataManager_LevelDB::addNewZeroConfTx(BinaryData const & rawTx,
           wltIter++)
       {
          // The bulk filter returns pair<isRelatedToUs, inputIsOurs>
-         isOurs = isOurs || (*wltIter)->isMineBulkFilter(txObj).first;
+         isOurs = isOurs || (*wltIter)->isMineBulkFilter(txObj, true).first;
       }
 
-      if(!isOurs)
+      if (!isOurs)
+      {
+         double timeElapsed = TIMER_READ_SEC("addNewZeroConfTx");
+
+         if (timeElapsed >= 1.0)
+            LOGWARN << "unrelated ZC parsed in unexpectedly long time: " << timeElapsed << " secs.";
+
          return false;
+      }
    }
     
    
@@ -5925,6 +5933,14 @@ bool BlockDataManager_LevelDB::addNewZeroConfTx(BinaryData const & rawTx,
       zcFile.write( (char*)zc.txobj_.getPtr(),  zc.txobj_.getSize());
       zcFile.close();
    }
+
+   TIMER_STOP("addNewZeroConfTx");
+
+   double timeElapsed = TIMER_READ_SEC("addNewZeroConfTx");
+
+   if (timeElapsed >= 1.0)
+      LOGWARN << "related ZC parsed in unexpectedly long time: " << timeElapsed << " secs.";
+
    return true;
 }
 
@@ -5934,6 +5950,8 @@ bool BlockDataManager_LevelDB::addNewZeroConfTx(BinaryData const & rawTx,
 void BlockDataManager_LevelDB::purgeZeroConfPool(void)
 {
    SCOPED_TIMER("purgeZeroConfPool");
+   TIMER_RESTART("purgeZC");
+
    list< map<HashString, ZeroConfData>::iterator > mapRmList;
 
    // Find all zero-conf transactions that made it into the blockchain
@@ -5962,6 +5980,12 @@ void BlockDataManager_LevelDB::purgeZeroConfPool(void)
    if(mapRmList.size() > 0)
       rewriteZeroConfFile();
 
+   TIMER_STOP("purgeZC");
+
+   double timeElapsed = TIMER_READ_SEC("purgeZC");
+
+   if (timeElapsed >= 1.0)
+      LOGWARN << "ZC pool purged in unexpectedly long time: " << timeElapsed << " secs.";
 }
 
 

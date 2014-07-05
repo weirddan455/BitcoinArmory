@@ -783,8 +783,8 @@ class ArmoryMainWindow(QMainWindow):
       haveGUI[1] = self
       BDMcurrentBlock[1] = 1
 
-      if DO_WALLET_CHECK: 
-         self.checkWallets()
+      #if DO_WALLET_CHECK: 
+         #self.checkWallets()
 
       self.setDashboardDetails()
 
@@ -2425,7 +2425,7 @@ class ArmoryMainWindow(QMainWindow):
       if TheBDM.getBDMState() in ('Offline','Uninitialized') or self.doShutdown:
          return
 
-      TheBDM.addNewZeroConfTx(pytxObj.serialize(), long(RightNow()), True, wait=False)
+      TheBDM.addNewZeroConfTx(pytxObj.serialize(), long(RightNow()), True, wait=True)
       self.newZeroConfSinceLastUpdate.append(pytxObj.serialize())
       #LOGDEBUG('Added zero-conf tx to pool: ' + binary_to_hex(pytxObj.thisHash))
 
