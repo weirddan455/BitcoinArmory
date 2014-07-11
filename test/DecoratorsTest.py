@@ -216,7 +216,7 @@ class VerifyArgTypeTest(unittest.TestCase):
       self.assertEqual(testFunc(2, 9, 3.2), 14.2)
       self.assertEqual(testFunc(2, '9', 3.2), 14.2)
       self.assertEqual(testFunc(2, '9', 3.2, 'a'), 15.2)
-      self.assertEqual(testFunc(2, '9', 3.2, 'a', extra=5), 16.2)
+      self.assertEqual(testFunc(2, '9', 3.2, 'a', extra='abc'), 16.2)
 
       def failingTest1():
          testFunc(2,   1.1, 3.2)

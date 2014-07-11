@@ -1,7 +1,7 @@
 
 
 ################################################################################
-CRYPT_KEY_SRC = enum('PASSWORD', 'PARCHAIN', 'EKEYOBJ')
+CRYPT_KEY_SRC = enum('MULTIPWD', 'PASSWORD', 'PARCHAIN', 'EKEYOBJ')
 CRYPT_IV_SRC  = enum('STOREDIV', 'PUBKEY20')
 NULLSTR8 = '\x00'*8
 KNOWN_CRYPTO = {'AE256CFB': {'blocksize': 16, 'keysize': 32}, \
@@ -112,6 +112,7 @@ class ArmoryCryptInfo(object):
       self.encryptAlgo  = encrAlgo
       self.keySource    = keysrc
       self.ivSource     = ivsrc
+      self.extraData    = ''  # for forwards compatibility
 
 
    ############################################################################
@@ -210,6 +211,7 @@ class ArmoryCryptInfo(object):
       bp.put(BINARY_CHUNK,  self.encryptAlgo,   widthBytes=8)
       bp.put(BINARY_CHUNK,  self.keySource,     widthBytes=8)
       bp.put(BINARY_CHUNK,  self.ivSource,      widthBytes=8)
+      bp.put(VAR_STR,       self.extraData)
 
 
    ############################################################################
@@ -219,6 +221,7 @@ class ArmoryCryptInfo(object):
       self.encryptAlgo = bu.get(BINARY_CHUNK, 8)
       self.keySource   = bu.get(BINARY_CHUNK, 8)
       self.ivSource    = bu.get(BINARY_CHUNK, 8)
+      self.extraData   = bu.get(VAR_STR)
       return self
        
    ############################################################################
@@ -472,7 +475,8 @@ class KdfObject(object):
    in order to allow larger memory usage on slower systems.
    """
    KDF_ALGORITHMS = { 'identity': [], 
-                      'romixov2': ['memReqd','numIter','salt'] }
+                      'romixov2': ['memReqd','numIter','salt'],
+                      'scrypt__': ['n','r','i'] }
    REGISTERED_KDFS = { }
 
    #############################################################################
@@ -792,9 +796,8 @@ class EncryptionKey(object):
 
 
    #############################################################################
-   def CreateNewMasterKey(self, encryptKeyKDF, encryptKeyAlgo, passphrase, \
-                                                         withTestString=True, \
-                                                         masterKeyType=None):
+   def CreateNewMasterKey(self, encryptKeyKDF, encryptKeyAlgo, sbdPasswd,
+                                withTestString=True, masterKeyType=None):
       """
       This method assumes you already have a KDF you want to use and is 
       referenced by the first arg.  If not, please create the KDF and
@@ -856,7 +859,7 @@ class EncryptionKey(object):
       self.masterKeyPlain = SecureBinaryData().GenerateRandom(32)
       self.ekeyID = self.EncryptionKeyToID(self.masterKeyPlain)
       self.masterKeyEncrypted = self.encryptInfo.encrypt(self.masterKeyPlain, \
-                                                         passphrase)
+                                                         sbdPasswd)
 
       if not withTestString:
          self.testStringPlain = '\x00'*32
@@ -983,6 +986,252 @@ class EncryptionKey(object):
    
 
          
+#############################################################################
+#############################################################################
+class MultiPwdEncryptionKey(object):
+   """
+   Instead of storing a single master encryption key which is encrypted
+   with a password, we're going to have an M-of-N split of the master
+   encryption key, each on encrypted with a different password.  So instead
+   of :
+
+      ekeyInfo | encryptedMasterKey
+
+   we will have:
+
+      ekeyInfoA | encryptedMasterFragA | ekeyInfoB | encryptedMasterFragB | ...
+
+   We intentionally do not have a way to verify if an individual password
+   is correct without having a quorum of correct passwords.  This makes
+   sure that master key is effectively encrypted with the entropy of 
+   M passwords, instead of M keys each encrypted with the entropy of one
+   password (reduced ever so slightly if M != N)
+   """
+
+   #############################################################################
+   def __init__(self, keytype=None, keyid=None, efragList=None):
+      self.ekeyType           = keytype if keytype else SecureBinaryData(0)
+      self.ekeyID             = keyid   if keyid   else SecureBinaryData(0)
+
+      if efragList and not isinstance(efragList, (list,tuple)):
+         LOGERROR('Need to provide list of einfo & SBD objects for frag list')
+         raise BadInputError
+      
+      if efragList:
+         self.efrags = [[i,SecureBinaryData(f)] for i,f in efragList]
+
+      # If the object is unlocked, we'll store a the plain master key here
+      self.masterKeyPlain      = SecureBinaryData(0)
+      self.relockAtTime        = 0
+      self.lockTimeout         = 10
+
+
+   #############################################################################
+   def EncryptionKeyToID(self, rawkey, ekeyalgo):
+      # A static method that computes an 8-byte ID for any raw string
+      # Essentially a hash of the 32-byte key and its type (i.e. 'AE256CFB')
+      rawkey = SecureBinaryData(rawkey)
+      hmac = HDWalletCrypto().HMAC_SHA512(rawkey, ekeyalgo)
+      rawkey.destroy()
+      return hmac.toBinStr()[:8]
+
+
+   ############################################################################
+   def getBlockSize(self):
+      if not KNOWN_CRYPTO.has_key(self.ekeyType):
+         raise EncryptionError, 'Unknown crypto blocksize: %s' % self.ekeyType
+      else:
+         return KNOWN_CRYPTO[self.ekeyType]['blocksize']
+   
+   #############################################################################
+   def getEncryptionKeyID(self):
+      if self.ekeyID==None:
+         # Needs to be computed
+         if self.isLocked():
+            LOGERROR('No stored ekey ID, and ekey is locked so cannot compute')
+            raise EncryptionError
+         self.ekeyID = EncryptionKey().EncryptionKeyToID(self.masterKeyPlain, \
+                                                         self.ekeyType)
+      return self.ekeyID
+
+   #############################################################################
+   def verifyPassphrase(self, passphrase):
+      passphrase = SecureBinaryData(passphrase)
+      tempKey = self.encryptInfo.decrypt(self.masterKeyEncrypted, passphrase)
+      out = (self.EncryptionKeyToID(tempKey)==self.ekeyID)
+      passphrase.destroy()
+      tempKey.destroy()
+      return out
+
+
+   #############################################################################
+   def unlock(self, passphrase):
+      LOGDEBUG('Unlocking encryption key %s', self.ekeyID)
+      try:
+         passphrase = SecureBinaryData(passphrase)
+         self.masterKeyPlain = \
+                  self.encryptInfo.decrypt(self.masterKeyEncrypted, passphrase)
+         if not self.EncryptionKeyToID(self.masterKeyPlain)==self.ekeyID:
+            LOGERROR('Wrong passphrase passed to EKEY unlock function.')
+            self.masterKeyPlain.destroy()
+            return False
+         self.relockAtTime = RightNow() + self.lockTimeout
+         return True
+      finally:
+         passphrase.destroy()
+
+
+
+   #############################################################################
+   def lock(self, passphrase=None):
+      LOGDEBUG('Locking encryption key %s', self.ekeyID)
+      try:
+         if self.masterKeyEncrypted.getSize()==0:
+            if passphrase==None:
+               LOGERROR('No encrypted master key available and no passphrase for lock()')
+               LOGERROR('Deleting it anyway.')
+               return False
+            else:
+               passphrase = SecureBinaryData(passphrase)
+               self.masterKeyEncrypted = \
+                        self.encryptInfo.encrypt(self.masterKeyPlain, passphrase)
+               passphrase.destroy()
+               return True
+      finally:
+         self.masterKeyPlain.destroy()
+
+
+   #############################################################################
+   def setLockTimeout(self, newTimeout): 
+      self.lockTimeout = newTimeout
+
+   #############################################################################
+   def checkLockTimeout(self): 
+      """ timeout=0 means never expires """
+      if self.lockTimeout<=0:
+         return
+         
+      if RightNow() > self.relockAtTime:
+         self.lock()
+
+
+   #############################################################################
+   def isLocked(self):
+      return (self.masterKeyPlain.getSize() == 0)
+
+
+   #############################################################################
+   def serialize(self):
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, self.ekeyType,                  widthBytes= 8)
+      bp.put(BINARY_CHUNK, self.ekeyID,                    widthBytes= 8)
+      bp.put(BINARY_CHUNK, self.encryptInfo.serialize(),   widthBytes=32)
+      bp.put(BINARY_CHUNK, self.masterKeyEncrypted,        widthBytes=32)
+      return bp.getBinaryString()
+
+
+   #############################################################################
+   def unserialize(self, strData):
+      bu = makeBinaryUnpacker(strData)
+      ekeyType = bu.get(BINARY_CHUNK,  8)
+      ekeyID   = bu.get(BINARY_CHUNK,  8)
+      einfoStr = bu.get(BINARY_CHUNK, 32)
+      emaster  = bu.get(BINARY_CHUNK, 32)
+      self.__init__(ekeyID, ekeyType, einfoStr, emaster, eteststr, pteststr)
+      return self
+
+
+   #############################################################################
+   def CreateNewMultiPwdKey(self, encryptKeyKDF, encryptKeyAlgo, 
+                                sbdPasswd, passwdType=(1,1),
+                                withTestString=True, masterKeyType=None):
+      """
+      This method assumes you already have a KDF you want to use and is 
+      referenced by the first arg.  If not, please create the KDF and
+      add it to the wallet first (and register it with KdfObject before 
+      using this method.
+
+      Generally, ArmoryCryptInfo objects can have a null KDF, but not for 
+      master encryption key objects (though just about anything is possible
+      with the ArmoryCryptInfo types)
+      """
+
+      LOGINFO('Generating new master key')
+
+      # Check for the existence of the specified KDF      
+      if isinstance(encryptKeyKDF, KdfObject):
+         kdfID = encryptKeyKDF.getKdfID()
+         if not KdfObject.kdfIsRegistered(kdfID):
+            LOGERROR('Somehow we got a KDF object that is not registered')
+            LOGERROR('Not going to use it, because if it is not registered, ')
+            LOGERROR('it also may not be part of the wallet, yet.')
+            raise UnrecognizedCrypto
+      elif isinstance(encryptKeyKDF, str):
+         kdfID = encryptKeyKDF[:]
+         if not KdfObject.kdfIsRegistered(kdfID):
+            LOGERROR('Key Deriv Func is not registered.  Cannot create new ')
+            LOGERROR('master key without using a known KDF.  Can create a ')
+            LOGERROR('new KDF via ')
+            LOGERROR('KdfObject().createNewKDF("ROMixOv2", targSec=X, maxMem=Y)')
+            raise UnrecognizedCrypto
+      else:
+         LOGERROR('Bad argument type for "encryptKeyKDF"')
+         raise BadInputError
+
+
+      # Check that we recognize the encryption algorithm
+      # This is the algorithm used to encrypt the master key itself
+      if not encryptKeyAlgo in KNOWN_CRYPTO:
+         LOGERROR('Unrecognized crypto algorithm: %s', encryptKeyAlgo)
+         raise UnrecognizedCrypto
+
+      # The masterKeyType is the encryption algorithm that is intended to
+      # be used with this key (once it is decrypted to unlock the wallet).
+      # This will usually be the same as the encryptKeyAlgo, but I guess 
+      # it doesn't have to be
+      if masterKeyType==None:
+         self.ekeyType = encryptKeyAlgo
+      else:
+         if not masterKeyType in KNOWN_CRYPTO:
+            LOGERROR('Unrecognized crypto algorithm: %s', masterKeyType)
+            raise UnrecognizedCrypto
+         self.ekeyType = masterKeyType
+         
+      # Master encryption keys will always be stored with IV
+      storedIV = SecureBinaryData().GenerateRandom(8)
+      self.encryptInfo = ArmoryCryptInfo(kdfID, encryptKeyAlgo, \
+                                         'PASSWORD', storedIV)
+
+      # Create the master key...
+      self.masterKeyPlain = SecureBinaryData().GenerateRandom(32)
+      self.ekeyID = self.EncryptionKeyToID(self.masterKeyPlain)
+      self.masterKeyEncrypted = self.encryptInfo.encrypt(self.masterKeyPlain, \
+                                                         passphrase)
+
+      if not withTestString:
+         self.testStringPlain = '\x00'*32
+         self.testStringEncr  = '\x00'*32
+      else:
+         rand16 = SecureBinaryData().GenerateRandom(16)
+         self.testStringPlain = SecureBinaryData('ARMORYENCRYPTION') + rand16
+         testStrIV = self.ekeyID*2  
+         if encryptKeyAlgo=='AE256CBC': 
+            self.testStringEncr = CryptoAES().EncryptCBC(self.testStringPlain, \
+                                                         self.masterKeyPlain, \
+                                                         testStrIV)
+         elif encryptKeyAlgo=='AE256CFB': 
+            self.testStringEncr = CryptoAES().EncryptCFB(self.testStringPlain, \
+                                                         self.masterKeyPlain, \
+                                                         testStrIV)
+         else:
+            LOGERROR('Unrecognized encryption algorithm')
+      
+      self.masterKeyPlain.destroy()
+
+      LOGINFO('Finished creating new master key:')
+      LOGINFO('\tKDF:     %s', binary_to_hex(kdfID))
+      LOGINFO('\tCrypto:  %s', encryptKeyAlgo)
+      LOGINFO('\tTestStr: %s', binary_to_hex(self.testStringPlain[16:]))
 
 
 #############################################################################
@@ -1799,12 +2048,14 @@ class WalletEntry(object):
                    'ROOT': ArmoryRoot,
                    'LABL': AddressLabel,
                    'COMM': TxComment,
-                   'P2SH': ScriptP2SH,
+                   'LBOX': MultiSigLockbox,
                    'ZERO': ZeroData, 
                    'RLAT': RootRelationship,
                    'EKEY': EncryptionKey,
+                   'MKEY': MultiPwdEncryptionKey,
                    'CRYP': ArmoryCryptInfo,
                    'KDFO': KdfObject,
+                   'IDNT': IdentityPublicKey,
                    'SIGN': WltEntrySignature }
 
    REQUIRED_TYPES = ['ADDR', 'ROOT', 'RLAT']

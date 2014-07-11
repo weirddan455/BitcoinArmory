@@ -6,10 +6,7 @@
 #
 ################################################################################
 #
-# Project:    Armory
-# Author:     Alan Reiner
-# Website:    www.bitcoinarmory.com
-# Orig Date:  20 November, 2011
+#
 #
 ################################################################################
 from armoryengine.ArmoryUtils import LOGWARN, LOGERROR
@@ -57,7 +54,7 @@ def EmailOutput(send_from, password, send_to, subject='Armory Output'):
 
 
 
-
+################################################################################
 # Enforce Argument Types -- Decorator factory (for a decorator with args)
 def VerifyArgTypes(**typemap):
 
