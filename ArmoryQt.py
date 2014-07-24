@@ -3072,6 +3072,17 @@ class ArmoryMainWindow(QMainWindow):
             self.delayedURIData['qLen'] = qLen -i -1
             self.uriLinkClicked(uriStr)
 
+      # Create large list of non-double-spend promissory notes
+      # This branch is a dead-end hack simply to create all the
+      # prom notes for our donation-matching promotion.  The
+      # issue is that we can't use coin-control with simulfunding
+      # so we don't have a way to create 20+ prom notes without
+      # promising the same inputs for a bunch.  This function below 
+      # will be run after the blockchain is done loading, to
+      # create all the notes from a list, assuming that the spec
+      # wallet has enough UTXOs
+      #self.createSimulTx()
+
 
    #############################################################################
    def removeBootstrapDat(self):
@@ -7074,6 +7085,104 @@ class ArmoryMainWindow(QMainWindow):
          self.dlgCptWlt.show()
       else:
          self.dlgCptWlt.exec_()
+
+
+   
+   #############################################################################
+   def createSimulTx(self):
+      """
+      simulparty.txt should look like the following:
+
+      <walletID>
+      0.50 AddrBF  Bitcoin Foundation
+      0.25 AddrBF  Bitcoin Foundation
+      0.25 AddrBF  Bitcoin Foundation
+      0.50 AddrFSF Free Software Foundation
+      0.50 AddrFSF Free Software Foundation
+      0.50 AddrSSL OpenSSL Foundation
+      0.50 AddrSSL OpenSSL Foundation
+      """
+      if not os.path.exists('simuls'):
+         os.mkdir('simuls')
+
+      simulLines = [l.strip() for l in open('simulparty.txt','r').readlines()]
+      srcWltID = simulLines[0]
+      wlt = self.walletMap.get(srcWltID)
+      if not wlt:
+         LOGERROR('Invalid wallet ID provided to simulparty process')
+         raise BadInputError
+      
+      splitList = [l.split() for l in simulLines[1:]]
+      donateList = [[str2coin(s[0]), s[1], ' '.join(s[2:])] for s in splitList]
+      
+      for v,a,s in donateList:
+         print 'Value=%s, addr=%s, org="%s"' % (coin2str(v), a[:12]+'...', s)
+
+      print ''
+      
+      utxoList = wlt.getTxOutList('Spendable')
+      utxoSet = set([ (i, utxoList[i].getValue()) for i in range(len(utxoList))])
+
+      feeAmt = str2coin('0.0001')
+
+      for i,donList in enumerate(donateList):
+         targVal,addrStr,orgName = donList
+         targVal += feeAmt
+         bestIdx = UINT64_MAX
+         bestVal = UINT64_MAX
+         changeAmt = UINT64_MAX
+         for idx,val in utxoSet:
+            if val < targVal:
+               continue
+
+            if val-targVal < changeAmt:
+               changeAmt = val-targVal
+               bestIdx = idx
+               bestVal = val
+
+            if changeAmt==0:
+               break
+
+         utxoSet.remove((bestIdx, bestVal))
+
+         fn = 'simul_%02d_%d_to_%s.txt' % (i, targVal-feeAmt, orgName.replace(' ','_'))
+         fpath = os.path.join('simuls', fn)
+
+         label = 'ATI Donation Match to %s' % orgName
+
+         donList.extend([bestIdx, bestVal, changeAmt, label, fpath])
+         print donList
+         
+      
+      raw_input('Continue?')
+
+      # Each prom note will have a single USTXI -- we made sure before executing
+      # this that there is at least one sufficient-size UTXO for each prom note 
+      for targVal,addrStr,orgName,utxoIdx,utxoVal,chngAmt,label,outPath  in donateList:
+         utxo = utxoList[utxoIdx]
+         txHash = utxo.getTxHash()
+         txoIdx = utxo.getTxOutIndex()
+         cppTx = TheBDM.getTxByHash(txHash)
+         rawTx = cppTx.serialize()
+         utxoScrAddr = utxo.getRecipientScrAddr()
+         aobj = wlt.getAddrByHash160(CheckHash160(utxoScrAddr))
+         pubKeys = {utxoScrAddr: aobj.binPublicKey65.toBinStr()}
+         ustxiList = [UnsignedTxInput(rawTx, txoIdx, None, pubKeys)]
+
+         dtxoTarget = DecoratedTxOut( addrStr_to_script(addrStr), targVal )
+         dtxoChange = None 
+         if chngAmt > 0:
+            changeAddr160 = wlt.getNextUnusedAddress().getAddr160()
+            changeScript = hash160_to_p2pkhash_script(changeAddr160)
+            dtxoChange = DecoratedTxOut( changeScript, chngAmt )
+
+         prom = MultiSigPromissoryNote(dtxoTarget, feeAmt, ustxiList, dtxoChange, label)
+         print 'Writing', outPath
+         with open(outPath,'w') as f:
+            f.write(prom.serializeAscii())
+            f.write("\n")
+         
+
 
 
 ############################################

@@ -3092,7 +3092,7 @@ class DlgMultiSpendReview(ArmoryDialog):
 class DlgCreatePromNote(ArmoryDialog):
 
    #############################################################################
-   def __init__(self, parent, main, defaultID=None, skipExport=False):
+   def __init__(self, parent, main, defaultIDorAddr=None, skipExport=False):
       super(DlgCreatePromNote, self).__init__(parent, main)
 
       self.finalPromNote = None
@@ -3144,8 +3144,11 @@ class DlgCreatePromNote(ArmoryDialog):
       lblBTC2    = QRichLabel(tr('BTC'))
 
       startStr = ''
-      if defaultID:
-         startStr = createLockboxEntryStr(defaultID)
+      if defaultIDorAddr:
+         if len(defaultIDorAddr) < 25:
+            startStr = createLockboxEntryStr(defaultIDorAddr)
+         else:
+            startStr = defaultIDorAddr
 
       aewMap = self.main.createAddressEntryWidgets(self, startStr, 
                                        maxDetectLen=72, boldDetectParts=2)
@@ -3635,14 +3638,17 @@ class DlgMergePromNotes(ArmoryDialog):
          return
             
   
-      lbID = None
+      defaultTarg = None
       if self.promMustMatch:
          for lbox in self.main.allLockboxes:
             if lbox.p2shScrAddr == self.promMustMatch:
-               lbID = lbox.uniqueIDB58
+               defaultTarg = lbox.uniqueIDB58
+               break
+         else:
+            defaultTarg = scrAddr_to_addrStr(self.promMustMatch)
                
          
-      dlg = DlgCreatePromNote(self, self.main, lbID, skipExport=True)
+      dlg = DlgCreatePromNote(self, self.main, defaultTarg, skipExport=True)
       dlg.exec_()
       if dlg.finalPromNote:
          self.addNote(dlg.finalPromNote)
