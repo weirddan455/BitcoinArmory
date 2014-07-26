@@ -88,6 +88,7 @@ class ChecksumError(Exception): pass
 class WalletAddressError(Exception): pass
 class PassphraseError(Exception): pass
 class EncryptionError(Exception): pass
+class KdfError(Exception): pass
 class InterruptTestError(Exception): pass
 class NetworkIDError(Exception): pass
 class WalletExistsError(Exception): pass
