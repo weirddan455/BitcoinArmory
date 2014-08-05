@@ -87,14 +87,6 @@ class ArmoryCryptInfo(object):
    the master key is unlocked, we just use the master key w/o KDF for
    the individual private keys) 
 
-   Master key encrypted with master-key-encryption-key (MKEK):
-             ArmoryCryptInfo( '0000000000000000',  
-                              'ccccdddd88889999',   
-                              'MULTIPASSWORDKEY',  
-                              '<SerializedIV>')
-   (For multiencrypt master key, encrypted with a key that is 
-   constructed on-the-fly from a set of fragments)
-
 
    Bare private key encryption w/o master key (use KDF & password):
              ArmoryCryptInfo( '11112222aaaabbbb',   
@@ -669,13 +661,6 @@ class EncryptionKey(object):
       self.lockTimeout         = 10
 
 
-
-   ############################################################################
-   def getBlockSize(self):
-      if not KNOWN_CRYPTO.has_key(self.ekeyAlgo):
-         raise EncryptionError('Unknown crypto blocksize: %s' % self.ekeyAlgo)
-
-      return KNOWN_CRYPTO[self.ekeyAlgo]['blocksize']
    
    #############################################################################
    def getEncryptionKeyID(self):
@@ -839,7 +824,7 @@ class EncryptionKey(object):
          self.keyTripleHash   = NULLSTR(0)
       else:
          # Note1: We are using the ID of the encryption key as the IV for
-         #        the test string (it will be stretched by the encrypt func)
+         #        the test string (it will be expanded by the encrypt func)
          # Note2: We use the encrypted test string essentially as a unique 
          #        salt for this wallet for the triple-hashed key.  
          #        It seems unnecessary since the master key should be a 
@@ -892,7 +877,6 @@ class EncryptionKey(object):
                               newEncryptAlgo,
                               newPass,
                               withTest, 
-                              self.ekeyAlgo, 
                               preGenKey=self.masterKeyPlain)
 
       self.lock(newPass)
@@ -983,7 +967,7 @@ class EncryptionKey(object):
       other relevant information).
       
       The message authentication code is computed like this: 
-         mac = toHex(HMAC_SHA512(decrypted32, msg)[:32])
+         mac = toHex(HMAC_SHA256(decrypted32, msg))
      
       ------------------------------------------------------------
       The following information is supplied by the user to 
@@ -1004,11 +988,12 @@ class EncryptionKey(object):
 
       LOGINFO('   User Info :     %s', userstr)
       userstr = SecureBinaryData(userstr)
-      hmac = HDWalletCrypto().HMAC_SHA512(self.testStringPlain, userstr)
+      hmac = HDWalletCrypto().HMAC_SHA256(self.testStringPlain, userstr)
 
       LOGINFO('   MAC (given):    %s', responseMacHex)
-      LOGINFO('   MAC (correct):  %s', hmac.toHexStr()[:64])
-      return (hmac.toHexStr()[:64]==responseMacHex)
+      LOGINFO('   MAC (correct):  %s', hmac.toHexStr())
+      return (hmac.toHexStr()==responseMacHex)
+
    
    #############################################################################
    def createBountyRewardScript(self, claimAddrStr):
@@ -1039,8 +1024,7 @@ class EncryptionKey(object):
 class MultiPwdEncryptionKey(object):
    """
    So there is a master encryption key for your wallet.
-   The master key is encrypted with the master-key-encrypt-key (self.MKEK)
-   The MKEK itself is never stored anywhere, only the M-of-N fragments of it.
+   The key itself is never stored anywhere, only the M-of-N fragments of it.
    The fragments are stored on disk, each encrypted with a different password.
    
    So instead of:
@@ -1049,7 +1033,7 @@ class MultiPwdEncryptionKey(object):
 
    we will have:
 
-      ekeyInfoA | mkekFrag1 | ekeyInfoB | mkekFrag2 | ...
+      ekeyInfo0 | keyFrag0 | ekeyInfo1 | keyFrag1 | ... 
 
 
    We intentionally do not have a way to verify if an individual password
@@ -1061,8 +1045,8 @@ class MultiPwdEncryptionKey(object):
    """
 
    #############################################################################
-   def __init__(self, keyID=None, masterKeyCrypt=None, einfoMaster=None, 
-                MNpair=None, einfoFrags=None, efragList=None, keyLabelList=None):
+   def __init__(self, keyID=None, M=None, einfoFrags=None, efragList=None, 
+                                                         keyLabelList=None):
       """
       einfoMaster is the encryption used to encrypt the master key (raw AES key)
       einfoList is the encryption used for each fragment (password w/ KDF)
@@ -1070,14 +1054,9 @@ class MultiPwdEncryptionKey(object):
       When this method is called with args, usually after reading the encrypted
       data from file.
       """
-      self.ekeyID      = keyID   if keyID   else NULLSTR(0)
-      self.einfoMaster = einfoMaster.copy() if einfoMaster else None
-      self.M, self.N   = MNpair if MNpair else (0,0)
-
-      if masterKeyCrypt:
-         self.masterKeyCrypt = SecureBinaryData(masterKeyCrypt)
-      else:
-         self.masterKeyCrypt = SecureBinaryData(0)
+      self.ekeyID      = keyID  if keyID  else NULLSTR(0)
+      self.M           = M if M else 0
+      self.N           = len(einfoFrags) if einfoFrags else 0
 
       if efragList and not isinstance(efragList, (list,tuple,NoneType)):
          raise BadInputError('Need list of einfo & SBD objs for frag list')
@@ -1103,23 +1082,9 @@ class MultiPwdEncryptionKey(object):
       self.relockAtTime        = 0
       self.lockTimeout         = 10
 
-      # Master key encryption key (MKEK)
-      # This will only be used to [very] temporarily hold the reconstructed
-      # encryption key used to encrypt the master key on disk.  It will
-      # be reconstructed on-demand from M-of-N fragments sitting on disk, 
-      # each of which is protected by a unique password.
-      self.MKEK = SecureBinaryData(0)
 
 
 
-
-   ############################################################################
-   def getBlockSize(self):
-      if not KNOWN_CRYPTO.has_key(self.ekeyAlgo):
-         raise EncryptionError, 'Unknown crypto blocksize: %s' % self.ekeyAlgo
-      else:
-         return KNOWN_CRYPTO[self.ekeyAlgo]['blocksize']
-   
    #############################################################################
    def getEncryptionKeyID(self):
       if self.ekeyID is None:
@@ -1135,18 +1100,16 @@ class MultiPwdEncryptionKey(object):
       return self.unlock(sbdPasswdList, justVerify=True)
 
    #############################################################################
-   def reconstructMKEK(self, sbdPasswdList):
+   def unlock(self, sbdPasswdList, justVerify=False):
       LOGDEBUG('Unlocking multi-encrypt key %s', self.ekeyID)
 
-      M,N = self.M, self.N
-
-      if M==0 or N==0:
+      if self.M==0 or self.N==0:
          raise BadInputError('Multi-encrypt master key not initialized')
       
 
-      npwd = sum([1 if p.getSize()>0 else 0 for p in sbdPasswdList]) 
-      if npwd < N:
-         raise BadInputError('Only %d pwds, %d needed' % (npwd, N))
+      npwd = sum([(1 if p.getSize()>0 else 0) for p in sbdPasswdList]) 
+      if npwd < self.N:
+         raise BadInputError('Only %d pwds, %d needed' % (npwd, self.N))
                                                    
       # pfrags will contain the (x,y) pairs (fragments) 
       pfrags = []
@@ -1155,33 +1118,19 @@ class MultiPwdEncryptionKey(object):
             continue
 
          # The einfo object carries all the KDF and IV info with it
-         pfrags.append([ int_to_binary(i, BIGENDIAN), 
-                      self.einfos[i].decrypt(self.efrags[i],pwd).toBinStr()])
+         pfrags.append([int_to_binary(i, BIGENDIAN), 
+                        self.einfos[i].decrypt(self.efrags[i], pwd).toBinStr()])
           
-      # Reconstruct the master encryption key from the decrypted fragments
-      self.MKEK = SecureBinaryData(ReconstructSecret(pfrags, M, len(pfrags[0])))
-      pfrags = None
-
-      
-      
-   #############################################################################
-   def unlock(self, sbdPasswdList, justVerify=False):
-      """
-      You must provide blanks for the passwords that were not provided.
-      """
-      LOGDEBUG('Unlocking multi-encrypt key %s', self.ekeyID)
-
       try:
-         # Temporarily compute key to decrypt master key, use it, then destroy
-         self.reconstructMKEK(sbdPasswdList)
-         self.masterKeyPlain = \
-                     self.einfoMaster.decrypt(self.masterKeyCrypt, self.MKEK)
-
+         # Reconstruct the master encryption key from the decrypted fragments
+         self.masterKeyPlain = SecureBinaryData( \
+                           ReconstructSecret(pfrags, self.M, len(pfrags[0])))
+   
          if not calcEKeyID(self.masterKeyPlain)==self.ekeyID:
             LOGERROR('Not all passphrases correct.')
             self.masterKeyPlain.destroy()
             return False
-
+         
          if justVerify:
             self.masterKeyPlain.destroy()
          else:
@@ -1192,34 +1141,16 @@ class MultiPwdEncryptionKey(object):
          self.masterKeyPlain.destroy()
          return False
       finally:
-         self.MKEK.destroy()
+         # Always clear the decrypted fragments
+         pfrags = None
 
       return True
-
+      
 
    #############################################################################
    def lock(self, sbdPasswdList=None):
       LOGDEBUG('Locking encryption key %s', self.ekeyID)
-      try:
-
-         if self.masterKeyCrypt.getSize() > 0:
-            # We have an encrypted version of the master key, just delete plain
-            self.masterKeyPlain.destroy()
-            return True
-         else:
-            # Need to create an encrypted copy of the master key
-            if sbdPasswdList is None:
-               LOGERROR('No encrypted master key available and no passphrases for lock()')
-               return False
-            else:
-               self.reconstructMKEK(sbdPasswdList)
-               self.masterKeyCrypt = self.einfoMaster.encrypt( 
-                                                self.masterKeyPlain, self.MKEK)
-               return True
-      except:
-         LOGEXCEPT('Failed to lock wallet due to error')
-      finally:
-         self.MKEK.destroy()
+      self.masterKeyPlain.destroy()
 
 
    #############################################################################
@@ -1244,15 +1175,13 @@ class MultiPwdEncryptionKey(object):
    #############################################################################
    def serialize(self):
       bp = BinaryPacker()
-      bp.put(BINARY_CHUNK, self.ekeyID,                  widthBytes= 8)
-      bp.put(VAR_STR,      self.masterKeyCrypt)
-      bp.put(VAR_STR,      self.einfoMaster.serialize())
+      bp.put(BINARY_CHUNK, self.ekeyID, widthBytes= 8)
       bp.put(UINT8,        self.M)
       bp.put(UINT8,        self.N)
       for i in range(N):
          bp.put(VAR_STR, self.einfos[i].serialize())
          bp.put(VAR_STR, self.efrags[i].toBinStr())
-         bp.put(VAR_STR, toBytes(self.labels[i]))
+         bp.put(VAR_UNICODE, self.labels[i])
 
       return bp.getBinaryString()
 
@@ -1260,12 +1189,9 @@ class MultiPwdEncryptionKey(object):
    #############################################################################
    def unserialize(self, strData):
       bu = makeBinaryUnpacker(strData)
-      ekeyID    = bu.get(BINARY_CHUNK,  8)
-      ekeyAlgo  = bu.get(BINARY_CHUNK,  8)
-      masterKey = bu.get(BINARY_CHUNK, 32)
-      masterInfo= bu.get(VAR_STR)
-      M         = bu.get(UINT8)
-      N         = bu.get(UINT8)
+      ekeyID = bu.get(BINARY_CHUNK,  8)
+      M      = bu.get(UINT8)
+      N      = bu.get(UINT8)
    
       einfos = []
       efrags = []
@@ -1273,38 +1199,27 @@ class MultiPwdEncryptionKey(object):
       for i in range(N):
          einfos.append(ArmoryCryptInfo().unserialize(bp.get(VAR_STR)))
          efrags.append(SecureBinaryData(bp.get(VAR_STR)))
-         labels.append(toUnicode(bp.get(VAR_STR)))
+         labels.append(bp.get(VAR_UNICODE))
          
-      self.__init__(ekeyID, ekeyAlgo, masterKey, masterInfo, 
-                                  [M,N], einfos, efrags, labels)
+      self.__init__(ekeyID, M, einfos, efrags, labels)
       return self
 
 
    #############################################################################
-   def CreateNewMultiPwdKey(self, efragKdfID, encryptEkeyAlgo, 
-                                  MNpair, sbdPasswdList, labelList, 
+   def CreateNewMultiPwdKey(self, efragKdfID, encryptFragAlgo, 
+                                  M, N, sbdPasswdList, labelList, 
                                   preGenKey=None):
 
       """
       This method assumes you already have a KDF you want to use and is 
       referenced by the first arg.  If not, please create the KDF and
       add it to the wallet first (and register it with KdfObject before 
-      using this method.
-      
-      We only use KDF for the frags (to decrypt with passwords).  The master
-      key is encrypted with MKEK which is a full 32 bytes of entropy and 
-      doesn't need a KDF.
-
-      We assume that the frags will be encrypted with the same 
-      encryption algorithm as the master key (i.e. AES256CBC or AES256CFB)
-
-      All passwords will be stretched with the same KDF.  
+      using this method).  All passwords are stretched with the same KDF,
+      though they will use different salt, and hence need diff einfo objects.
       """
 
       LOGINFO('Generating new multi-password master key')
 
-      M,N = MNpair 
-      
       # Confirm we have N passwords and N labels
       if not len(sbdPasswdList)==N:
          raise BadInputError('Expected %d passwords, only %d provided' % \
@@ -1323,59 +1238,51 @@ class MultiPwdEncryptionKey(object):
 
 
       # Check that we recognize the encryption algorithm
-      # This will be AES256CBC, etc... used to encrypt master key and frags
-      if not encryptEkeyAlgo in KNOWN_CRYPTO:
-         LOGERROR('Unrecognized crypto algorithm: %s', encryptEkeyAlgo)
+      # This will be AES256CBC, etc... used to encrypt frags
+      if not encryptFragAlgo in KNOWN_CRYPTO:
+         LOGERROR('Unrecognized crypto algorithm: %s', encryptFragAlgo)
          raise UnrecognizedCrypto
 
-      # Create the encryption info object for the master key
-      newIV = SecureBinaryData().GenerateRandom(8)
-      self.einfoMaster = ArmoryCryptInfo(NULLKDF, self.ekeyAlgo, 'MULTIPWD', newIV))
          
       # Create the crypt info objs for the fragments (use same encrypt algo)
       self.einfos  = []
       for i in range(N):
-         iv = SecureBinaryData().GenerateRandom(8)
-         self.einfos.append(ArmoryCryptInfo(kdfID, self.ekeyAlgo, 'PASSWORD', iv))
-
       # Create placeholder for master key to be encrypted and stored in file
       newKeyPlain = NULLSBD()
 
       try:
-         # Create the MKEK (which will be sharded and forgotten)
-         self.MKEK = SecureBinaryData().GenerateRandom(32)
+         # Create the new master key and frag it
+         if preGenKey:
+            newKeyPlain = preGenKey.copy()
+         else:
+            newKeyPlain = SecureBinaryData().GenerateRandom(32)
 
-         plainFrags = SplitSecret(newMKEK.toBinStr(), M, N, 32)
+         plainFrags = SplitSecret(newKeyPlain.toBinStr(), M, N, 32)
          self.efrags = []
          for i in range(N):
+            iv = SecureBinaryData().GenerateRandom(8)
+            einfo = ArmoryCryptInfo(kdfID, encryptFragAlgo, 'PASSWORD', iv)
             pfrag = SecureBinaryData(plainFrags[i])
-            self.efrags.append(self.einfos[i].encrypt(pfrag, sbdPasswdList[i]))
+
+            self.efrags.append(einfo.encrypt(pfrag, sbdPasswdList[i]))
+            self.einfos.append(einfo)
             self.labels.append(labelList[i])
             pfrag.destroy()
 
          # Forget the plain frags
          plainFrags = None
 
-         # Create the new master key, and encrypt it with the MKEK
-         if preGenKey:
-            newKeyPlain = preGenKey.copy()
-         else:
-            newKeyPlain = SecureBinaryData().GenerateRandom(32)
-
          self.ekeyID = calcEKeyID(newKeyPlain)
-         self.masterKeyCrypt = self.einfoMaster.encrypt(newKeyPlain, self.MKEK)
          # Plain master key destroyed in finally-clause
 
       except:
          LOGEXCEPT('Error creating multipwd key')
       finally:
-         newMKEK.destroy()
          newKeyPlain.destroy()
 
       LOGINFO('Finished creating new master key:')
       LOGINFO('\tKDF:     %s', binary_to_hex(kdfID))
-      LOGINFO('\tCrypto:  %s', encryptEkeyAlgo)
-      LOGINFO('\tTestStr: %s', binary_to_hex(self.testStringPlain[16:]))
+      LOGINFO('\tCrypto:  %s', encryptFragAlgo)
 
       return self
 
@@ -1409,24 +1316,24 @@ class MultiPwdEncryptionKey(object):
          newKdfID = self.einfos[0].kdfObjID
 
       if newEncryptAlgo is None:
-         newEncryptAlgo = self.einfoMaster.encryptAlgo
+         # All frags are encrypted with same algo, can just grab first one
+         newEncryptAlgo = self.einfos[0].encryptAlgo
 
+      if newLabels is None:
+         newLabels = self.labels[:]
 
       if sum([ (1 if p.getSize()==0 else 0)  for p in newPassList]) > 0:
          raise PassphraseError('All new passwords must be non-empty')
-         
-      if newLabels is None:
-         newLabels = self.labels[:]
 
       # Not creating a new key, but the process is the same; use preGenKey arg
       self.CreateNewMultiPwdKey(newKdfID,
                                 newEncryptAlgo,
-                                [self.M, self.N],
+                                self.M, self.N,
                                 newPassList,
                                 newLabels,
                                 preGenKey=self.masterKeyPlain)
 
-      self.lock(newPass)
+      self.lock()
       
 
 
@@ -1434,17 +1341,42 @@ class MultiPwdEncryptionKey(object):
 #############################################################################
 #############################################################################
 class ZeroData(object):
-
+   """
+   Creates a chunk of zeros of size nBytes.  But to ensure it can be 
+   unserialized without knowing its size, we put it's VAR_INT size 
+   up front, and then write nBytes of zeros minus the VAR_INT size.
+   """
    def __init__(self, nBytes=0):
       self.nBytes = nBytes
 
+
    def serialize(self):
-      return '\x00'*self.nBytes
+      if self.nBytes==0:
+         raise UninitializedError
+
+      viSize = packVarInt(self.nBytes)[1]
+      bp = BinaryPacker()
+      bp.put(VAR_INT, self.nBytes)
+      bp.put(BINARY_CHUNK, '\x00'*(self.nBytes - viSize))
+      return bp.getBinaryString()
+
    
    def unserialize(self, zeroStr):
-      self.nBytes = len(zeroStr)
-      if not zeroStr.count('\x00')==self.nBytes:
-         LOGERROR('Expecting all zero bytes in ZeroData.') 
+      bu = makeBinaryUnpacker(zeroStr)
+
+      # We do the before/after thing in case a non-canonical VAR_INT was
+      # used.  Such as using a 4-byte VAR_INT to represent what only need
+      # a 2-byte VAR_INT
+      beforeVI = bu.getPosition()
+      nb = bu.get(VAR_INT)
+      afterVI = bu.getPosition()
+      viSize = afterVI - beforeVI
+      zstr = bu.get(BINARY_CHUNK, nb - viSize)
+
+      if not zstr=='\x00'*(nb-viSize):
+         LOGERROR('Expected all zero bytes, but got something else')
+      
+      self.__init__(nb)
       return self
       
 
@@ -1456,135 +1388,569 @@ class ZeroData(object):
 #############################################################################
 class RootRelationship(object):
    """
-   Simple Relationships will fit nicely into 68 bytes.  Otherwise, we give
-   the idea of RootRelationshipComplex object.  Complex relationships will
-   not be used for a long time... but might as well accommodate non-simple
-   cases.
+   A simple structure for storing the fingerprints of all the siblings of 
+   multi-sig wallet.  Each wallet chain that is part of this multi-sig 
+   should store a multi-sig flag and the ID of this object.    If a chain
+   has RRID zero but the multi-sig flag is on, it means that it was
+   generated to be part of a multi-sig but not all siblings have been 
+   acquired yet.
+
+   This object can be transferred between wallets and will be ignored if
+   none of the chains in the wallet use it.  Or transferred with all the
+   public chains to fully communicate a watching-only version of the 
+   multi-sig.  
    """
-   def __init__(self, MofN=None, siblings=[], complexRelate=None):
-      if MofN is None:   
-         MofN=MULTISIG_UNKNOWN
-      self.relType = MofN
-      self.relID = None
-      self.siblings = siblings
-      if len(self.siblings)>3:
-         LOGERROR('Cannot have wallet relationships between more than 3 wallets')
+   def __init__(self, M=None, N=None, siblingList=None, labels=None):
+      self.M = M if M else 0
+      self.N = N if N else 0
+      self.relID     = NULLSTR(8)
+      self.randID    = SecureBinaryData().GenerateRandom(8)
+      self.siblings  = []
+      self.sibLabels = []
+
+
+      if siblingList is None:
+         siblingList = []
+
+      if labels is None:
+         labels = []
+
+      if len(siblingList) > 15:
+         LOGERROR('Cannot have more than 15 wallets in multisig!')
          return
+
+      self.siblings  = siblingList[:]
+      self.sibLabels = labels[:]
 
       for sib in self.siblings:
          if not len(sib)==20:
             LOGERROR('All siblings must be specified by 20-byte hash160 values')
             return
 
+
+   def computeRelID(self):
+      self.relID = binary_to_base58(hash256(self.serialize()))[:8]
+      return self.relID
+
+      
+
+   def addSibling(sibRootID, label):
+      if len(self.siblings) >= self.N:
+         raise BadInputError('RR already has %d siblings' % self.N)
+
+      self.siblings.append(sibRootID)
+      self.labels.append(label)
+
+      if len(self.siblings) == self.N:
       self.siblings.sort()
+          
 
-
-      if MofN==MULTISIG_UNKNOWN:
-         LOGDEBUG('Initialized default RootRelationship object')
-      else:
-         LOGDEBUG('Initialized RootRelationship object: ')
-         LOGDEBUG('\tType:     %d-of-%d', self.relType[0], self.relType[1])
-         LOGDEBUG('\tSiblings: ')
-         for i,sib in enumerate(self.siblings):
-            LOGDEBUG('\t\tSiblingRoot%d: %s', i, binary_to_hex(sib))
-
-      # Isn't implemented yet, but we might as well have a placeholder for it
-      self.complexRelationship = complexRelate
-
-   def isMultiSig(self):
-      return not (MofN in (MULTISIG_UNKNOWN, MULTISIG_NONE, MULTISIG_1of1))
 
    def serialize(self):
-      if not self.complexRelationship: 
-         siblingOut = ['\x00'*20]*3
-         for i,sib in enumerate(sorted(self.siblings)):
-            siblingOut[i] = sib[:]
-         bp = BinaryPacker()
-         bp.put(UINT32,       self.relType[0])
-         bp.put(UINT32,       self.relType[1])
-         bp.put(BINARY_CHUNK, siblingOut[0],   widthBytes=20)
-         bp.put(BINARY_CHUNK, siblingOut[1],   widthBytes=20)
-         bp.put(BINARY_CHUNK, siblingOut[2],   widthBytes=20)
-         return bp.getBinaryString()
-      else:
-         bp = BinaryPacker()
-         bp.put(BINARY_CHUNK, '\xff'*4)
-         bp.put(BINARY_CHUNK, '\xff'*4)
-         bp.put(BINARY_CHUNK, self.complexRelationship.serialize())
+      bp = BinaryPacker()
+      bp.put(BINARY_CHUNK, self.relID, widthBytes=8)
+      bp.put(BINARY_CHUNK, self.randID, widthBytes=8)
+      bp.put(UINT8, self.M)
+      bp.put(UINT8, self.N)
+      bp.put(UINT8, len(self.siblings))
+      for i in range(len(self.siblings)):
+         bp.put(VAR_STR, self.siblings[i])
+         bp.put(VAR_STR, self.labels[i])
+
+      return bp.getBinaryString()
+
 
    def unserialize(self, theStr):
       bu = makeBinaryUnpacker(theStr)
-      M = bu.get(UINT32)
-      N = bu.get(UINT32)
-      self.siblings = []
-      if M==UINT32_MAX and N==UINT32_MAX:
-         self.complexRelationship = CplxRelate().unserialize(theStr)
-      else:
-         for i in range(3):
-            sib = bu.get(BINARY_CHUNK, 20)
-            if not sib=='\x00'*20:
-               self.siblings.append(sib)
+      relID = bu.get(BINARY_CHUNK, 8)
+      rndID = bu.get(BINARY_CHUNK, 8)
+      M = bu.get(UINT8)
+      N = bu.get(UINT8)
+      nsib = bu.get(UINT8)
+      sibList = []
+      lblList = []
+      for i in range(nsib):
+         sibList.append(bu.get(VAR_STR))
+         lblList.append(bu.get(VAR_STR))
+
+      self.__init__(M, N, sibList, lblList)
       return self
 
 
-   def hasSibling(self, sibling160):
-      return (sibling160 in self.siblings)
-
-
-   def getRelationshipID(self):
-      if self.relID is None:
-         self.relID = binary_to_base58(computeChecksum(self.serialize(), 6))
-      return self.relID
       
 
-#############################################################################
-# Pass in a random binary string, pass out True/False whether it meets
-# the criteria for being an acceptable seed
-def SipaStretchFunc(theStr, **kwargs):
-   """
-   For the first round of testing new wallets, we accept any seed
-   """
-   LOGERROR('Sipa Stretch Function not implemented.  Always return True')
-   return True
+
 
 #############################################################################
+class ArmoryAddress(object):
+
+   def __init__(self):
+      pass
+
+
+PRIV_KEY_AVAIL = enum('None', 'Plain', 'Encrypted', 'NextUnlock')
+AEKTYPE = enum('Uninitialized', 'BIP32', 'ARMORY135', 'JBOK')
+
+################################################################################
+################################################################################
+class ArmoryExtendedKey(object):
+   def __init__(self):
+      self.isWatchOnly     = False
+      self.privCryptInfo   = ArmoryCryptInfo(None)
+      self.sbdPrivKeyPlain = NULLSBD()
+      self.sbdPrivKeyCrypt = NULLSBD()
+      self.sbdPublicKey33  = NULLSBD()
+      self.sbdChaincode    = NULLSBD()
+      self.aekParent       = None
+      self.derivePath      = []
+      self.useUncompressed = False
+      self.aekType         = AEKTYPE.Uninitialized
+      self.keyLifetime     = 10
+      self.relockAtTime    = 0
+
+   #############################################################################
+   def createFromKeyPair(self, cppExtKeyObj):
+      
+
+   # spawnChild defined in derived classes
+   #def spawnChild(self, childID, ekeyObj=None, keyData=None, privSpawnReqd=False):
+      #if self.aekType==AEKTYPE.JBOK:
+         ## It's not that we can't do this -- just call SecureRandom(32).  
+         ## It's that we don't support JBOK wallets because they're terrible
+         #raise NotImplementedError('Cannot spawn from JBOK key.')
+      
+
+
+   #############################################################################
+   def getPrivKeyAvailability(self):
+      if self.isWatchOnly:
+         return PRIV_KEY_AVAIL.None
+      elif self.sbdPrivKeyPlain.getSize() > 0:
+         return PRIV_KEY_AVAIL.Plain
+      elif self.sbdPrivKeyCrypt.getSize() > 0:
+         return PRIV_KEY_AVAIL.Encrypted
+      else:
+         return PRIV_KEY_AVAIL.NextUnlock
+
+
+   #############################################################################
+   def useEncryption(self):
+      return self.privCryptInfo.useEncryption()
+         
+
+   #############################################################################
+   def getSerializedPubKey(self, serType='hex'):
+      """
+      The various public key serializations:  "hex", "xpub"
+      """
+      if useUncompressed:
+         pub = CryptoECDSA().UncompressPoint(self.sbdPublicKey33).copy()
+      else:
+         pub = self.sbdPublicKey33.copy()
+         
+      if serType.lower()=='hex':
+         return pub.toHexStr()
+
+      elif serType.lower()=='xpub':
+         raise NotImplementedError('Encoding not implemented yet')
+         
+   #############################################################################
+   def getSerializedPrivKey(self, serType='hex'):
+      """
+      The various private key serializations: "hex", "sipa", "xprv"
+      """
+
+      if self.useEncryption() and self.isLocked():
+         raise WalletLockError('Cannot serialize locked priv key')
+
+      lastByte = '' if self.useUncompressed else '\x01'
+      binPriv = self.sbdPrivKeyPlain.toBinStr() + lastByte
+         
+      if serType.lower()=='hex':
+         return binary_to_hex(hexPriv)
+      elif serType.lower()=='sipa':
+         binSipa '\x80' + binPriv + computeChecksum('\x80' + binPriv)
+         return binary_to_hex(binSipa)
+      elif serType.lower()=='xprv':
+         raise NotImplementedError('xprv encoding not yet implemented')
+
+
+   #############################################################################
+   def lock(self):
+      if self.sbdPrivKeyCrypt.getSize()==0:
+         raise KeyDataError('No encrypted form of priv key available')
+
+   #############################################################################
+   def unlock(self, ekeyObj, keyData, justVerify=False):
+      if self.sbdPrivKeyPlain.getSize() > 0:
+         # Already unlocked, just extend the lifetime in RAM
+         if not justVerify:
+            self.relockAtTime = RightNow() + self.keyLifetime
+         return
+
+
+      keyType,keyID = self.privCryptInfo.getEncryptKeySrc()
+      if keyType == CRYPT_KEY_SRC.EKEY_OBJ:
+         if ekeyObj is None:
+            raise KeyDataError('Need ekey obj to unlock, but is None')
+
+         if not keyID == ekeyObj.getEkeyID():
+            raise KeyDataError('Incorrect ekey to unlock address')
+               
+               
+      self.sbdPrivKeyPlain = \
+            self.privCryptInfo.decrypt(self.sbdPrivKeyCrypt, ekeyObj, keyData,
+                                    ivData=self.sbdPublicKey33.getHash256()[:16])
+      if justVerify=
+            self.bip32seed_plain = self.seedCryptInfo.decrypt( \
+                                                   self.bip32seed_encr, \
+                                                   ekeyObj=ekeyObj, \
+                                                   keyData=encryptKey)
+
+
+################################################################################
+################################################################################
+class Armory135ExtendedKey(ArmoryExtendedKey):
+   #############################################################################
+   def __init__(self, *args, **kwargs):
+      super(Armory135ExtendedKey, self).__init__(*args, **kwargs)
+      self.useUncompressed = True
+      self.derivePath = None
+      self.chainIndex = None
+
+
+
+
+   #############################################################################
+   def spawnChild(self, ekeyObj=None, keyData=None, privSpawnReqd=False):
+      """
+      We require some fairly complicated logic here, due to the fact that a
+      user with a full, private-key-bearing wallet, may try to generate a new
+      key/address without supplying a passphrase.  If this happens, the wallet
+      logic gets mucked up -- we don't want to reject the request to
+      generate a new address, but we can't compute the private key until the
+      next time the user unlocks their wallet.  Thus, we have to save off the
+      data they will need to create the key, to be applied on next unlock.
+      """
+
+      TimerStart('spawnChild_135')
+      startedLocked = False
+
+      # If the child key corresponds to a "hardened" derivation, we require
+      # the priv keys to be available, or sometimes we explicitly request it
+      if privSpawnReqd:
+         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.None:
+            raise KeyDataError('Requires priv key, but this is a WO ext key')
+
+         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Encrypted and \
+            ekeyObj is None and \
+            keyData is None)
+            raise KeyDataError('Requires priv key, no way to decrypt it')
+         
+
+      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NextUnlock:
+         if self.aekParent is None:
+            raise KeyDataError('No parent defined from which to derive this key')
+
+         if self.childID is None:
+            raise KeyDataError('No derivation path defined to derive this key')
+
+         # Recurse up the chain to extend from the last-fully-derived priv key
+         aek = self.aekParent.spawnChild(ekeyObj, keyData, privSpawnReqd)
+            
+         if not aek.sbdPublicKey33.toBinStr() == self.sbdPublicKey33.toBinStr():
+            raise keyData('Derived key supposed to match this one but does not')
+   
+         self.sbdPrivKeyPlain = aek.sbdPrivKeyPlain.copy()
+         self.sbdPrivKeyCrypt = aek.sbdPrivKeyCrypt.copy()
+         startedLocked = True  # if needed to derive, it was effectively locked
+                              
+      # If the key is currently encrypted, going to need to unlock it
+      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Encrypted:
+         unlockSuccess = self.unlock(ekeyObj, keyData)
+         if not unlockSuccess:
+            raise PassphraseError('Incorrect decryption data to spawn child')
+         else:
+            startedLocked = True  # will re-lock at the end of this operation
+
+
+      sbdPubKey65 = CryptoECDSA().UncompressPoint(self.sbdPublicKey33)
+      logMult1 = NULLSBD()
+      logMult2 = NULLSBD()
+
+      CECDSA = CryptoECDSA()
+      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Plain:
+         extendFunc = CECDSA.ComputeChainedPrivateKey
+         extendArgs = [self.sbdPrivKeyPlain, self.sbdChaincode, sbdPubKey65, logMult1]
+         extendType = 'Private'
+      elif self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.None
+         extendFunc = CECDSA.ComputeChainedPublicKey
+         extendArgs = [sbdPubKey65, self.sbdChaincode, logMult1]
+         extendType = 'Public'
+         
+   
+         sbdNewKey1 = extendFunc(*extendArgs)
+         sbdNewKey2 = extendFunc(*extendArgs)
+
+         if sbdNewKey1.toBinStr() == sbdNewKey2.toBinStr():
+            sbdNewKey2.destroy()
+            with open(MULT_LOG_FILE,'a') as f:
+               f.write('%s chain (pkh, mult): %s,%s\n' % (extendType, logMult1.toHexStr()))
+         else:
+            LOGCRIT('Chaining failed!  Computed keys are different!')
+            LOGCRIT('Recomputing chained key 3 times; bail if they do not match')
+            sbdNewKey1.destroy()
+            sbdNewKey2.destroy()
+            logMult3 = SecureBinaryData()
+
+            sbdNewKey1 = extendFunc(*extendArgs)
+            sbdNewKey2 = extendFunc(*extendArgs)
+            sbdNewKey3 = extendFunc(*extendArgs)
+            LOGCRIT('   Multiplier1: ' + logMult1.toHexStr())
+            LOGCRIT('   Multiplier2: ' + logMult2.toHexStr())
+            LOGCRIT('   Multiplier3: ' + logMult3.toHexStr())
+
+            if sbdNewKey1==sbdNewKey2 and sbdNewKey1==sbdNewKey3:
+               sbdNewKey2.destroy()
+               sbdNewKey3.destroy()
+               with open(MULT_LOG_FILE,'a') as f:
+                  f.write('Computed chain (pkh, mult): %s,%s\n' % (a160hex,logMult1.toHexStr()))
+            else:
+               sbdNewKey1.destroy()
+               sbdNewKey2.destroy()
+               sbdNewKey3.destroy()
+               # This should crash just about any process that would try to use it
+               # without checking for empty private key. 
+               raise KeyDataError('Chaining %s Key Failed!' % extendType)
+
+      if extendType=='Private':
+         sbdNewPriv  = sbdNewKey1.copy()
+         sbdNewPub   = CryptoECDSA().ComputePublicKey(sbdNewPriv)
+         sbdNewChain = self.sbdChaincode.copy()
+      else:
+         sbdNewPriv  = NULLSBD()
+         sbdNewPub   = sbdNewKey1.copy()
+         sbdNewChain = self.sbdChaincode.copy()
+
+      childAddr = Armory135ExtendedKey(privKey=sbdNewPriv, 
+                                       pubKey=sbdNewPub, 
+                                       chain=sbdNewChain)
+                                        
+      childAddr.chainIndex = self.chainIndex + 1
+      childAddr.aekParent      = self
+      childAddr.aekParentID    = self.getExtKeyID()
+      childAddr.privCryptInfo  = self.privCryptInfo
+      childAddr.isInitialized  = True
+
+      if startedLocked:
+         childAddr.lock(ekeyObj, keyData)
+         childAddr.unlock(ekeyObj, keyData)
+         childAddr.lock(ekeyObj, keyData)
+
+      return childAddr
+
+class ArmoryBip32ExtendedKey(ArmoryExtendedKey):
+   def __init__(self, *args, **kwargs):
+      super(ArmoryBip32ExtendedKey, self).__init__(*args, **kwargs)
+
+
+   #############################################################################
+   def spawnChild(self, childID, ekeyObj=None, keyData=None, privSpawnReqd=False):
+      """
+      We require some fairly complicated logic here, due to the fact that a
+      user with a full, private-key-bearing wallet, may try to generate a new
+      key/address without supplying a passphrase.  If this happens, the wallet
+      logic gets mucked up -- we don't want to reject the request to
+      generate a new address, but we can't compute the private key until the
+      next time the user unlocks their wallet.  Thus, we have to save off the
+      data they will need to create the key, to be applied on next unlock.
+      """
+
+      TimerStart('spawnChild')
+      startedLocked = False
+
+      if self.aekType==AEKTYPE.JBOK:
+         # It's not that we can't do this -- just call SecureRandom(32).  
+         # It's that we don't support JBOK wallets because they're terrible
+         raise NotImplementedError('Cannot spawn from JBOK key.')
+      
+      # If the child key corresponds to a "hardened" derivation, we require
+      # the priv keys to be available, or sometimes we explicitly request it
+      if privSpawnReqd or (childID & 0x80000000 > 0):
+         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.None:
+            raise KeyDataError('Requires priv key, but this is a WO ext key')
+
+         if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Encrypted and \
+            ekeyObj is None and \
+            keyData is None)
+            raise KeyDataError('Requires priv key, no way to decrypt it')
+         
+
+      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.NextUnlock:
+         if self.aekParent is None:
+            raise KeyDataError('No parent defined from which to derive this key')
+
+         if self.derivePath is None:
+            raise KeyDataError('No derivation path defined to derive this key')
+
+         # Recurse up the derivation path to derive the parent(s)
+         if self.aekType == AEKTYPE.BIP32:
+            if self.derivePath is None:
+               raise KeyDataError('No derivation path defined to derive this key')
+            aek = self.aekParent.spawnChild(self.derivePath[-1], ekeyObj, keyData)
+         elif self.aekType == AEKTYPE.ARMORY135:
+            aek = self.aekParent.spawnChild(0, ekeyObj, keyData)
+            
+
+         if not aek.sbdPublicKey33.toBinStr() == self.sbdPublicKey33.toBinStr():
+            raise keyData('Derived key supposed to match this one but does not')
+   
+         self.sbdPrivKeyPlain = aek.sbdPrivKeyPlain.copy()
+         self.sbdPrivKeyCrypt = aek.sbdPrivKeyCrypt.copy()
+         startedLocked = True  # if needed to derive, it was effectively locked
+                              
+      # If the key is currently encrypted, going to need to unlock it
+      if self.getPrivKeyAvailability()==PRIV_KEY_AVAIL.Encrypted:
+         unlockSuccess = self.unlock(ekeyObj, keyData)
+         if not unlockSuccess:
+            raise PassphraseError('Incorrect decryption data to spawn child')
+         else:
+            startedLocked = True  # will re-lock at the end of this operation
+
+
+         
+      childAddr.childIdentifier
+      extChild  = HDWalletCrypto().ChildKeyDeriv(self.getExtendedKey(), childID)
+
+      # In all cases we compute a new public key and chaincode
+      childAddr.binPubKey33  = extChild.getPub().copy()
+      childAddr.binChaincode = extChild.getChain().copy()
+
+      if privAvail==PRIV_KEY_AVAIL.Plain:
+         # We are extending a chain using private key data (unencrypted)
+         childAddr.binPrivKey32_Plain  = extChild.getPriv().copy()
+         childAddr.needToDerivePrivKey = False
+      elif privAvail==PRIV_KEY_AVAIL.NextUnlock:
+         # Copy the parent's encrypted key data to child, set flag
+         childAddr.binPrivKey32_Encr = self.binPrivKey32_Encr.copy()
+         childAddr.binChaincode      = self.binChaincode.copy()
+         childAddr.needToDerivePrivKey = True
+      elif privAvail==PRIV_KEY_AVAIL.None:
+         # Probably just extending a public key
+         childAddr.binPrivKey32_Plain  = SecureBinaryData(0)
+         childAddr.needToDerivePrivKey = False
+      else:
+         LOGERROR('How did we get here?  spawnchild:')
+         LOGERROR('   privAvail == %s', privAvail)
+         LOGERROR('   encrypt   == %s', self.useEncryption)
+         LOGERROR('Bailing without spawning child')
+         raise KeyDataError
+   
+      childAddr.parentHash160      = self.getHash160()
+      childAddr.binAddr160         = self.binPubKey33or65.getHash160()
+      childAddr.useEncryption      = self.useEncryption
+      childAddr.isInitialized      = True
+      childAddr.childIdentifier    = childID
+      childAddr.hdwDepth           = self.hdwDepth+1
+      childAddr.indexList          = self.indexList[:]
+      childAddr.indexList.append(childID)
+
+      if childAddr.useEncryption and not childAddr.needToDerivePrivKey:
+         # We can't get here without a [valid] decryptKey 
+         childAddr.lock(ekeyObj, keyData))
+         if not startedLocked:
+            childAddr.unlock(ekeyObj, keyData)
+            self.unlock(ekeyObj, keyData)
+
+      return ArmoryExtendedKey(
+      return childAddr
+
+   #############################################################################
+   def getWalletLocator(self, encryptWithParentChain=True)
+      """
+      @encryptWithParentChain:
+
+      The wallet locator information is really intended for the online
+      computer to identify to an offline computer that certain public
+      keys are a related to the wallet.  The problem is that the data
+      passes by a lot of unrelated parties on the way and wallet locators
+      with the same IDs or similar paths could leak privacy information.
+      However, both online and offline computer have data that no one
+      else should know: the chaincode.  So we simply put a unique 
+      identifier up front, and then encrypt the thing using the chaincode
+      of the parent/root as the AES256 key.  The offline computer will 
+      attempt to decrypt all wallet locators strings with the chaincode,
+      and if it succeeds, it will use the locator information as needed.
+      If you are unrelated to the wallet, it will look like random data.
+
+      One problem is that some devices may only have floating branches 
+      of a BIP32 wallet, and wouldn't recognize the root.  In other cases
+      we might have a system with thousands of wallets, and attempting 
+      decryption with every chain code might be excessive.   So we 
+      actually encrypt every sub-path:  i.e.
+
+         encrypt_m_x("y/z/a") | encrypt_m_x_y("z/a") | encrrypt_m_x_y_z("a")
+
+      The whole thing is the wallet locator, and if the wallet has no
+      floating chains, it only needs to attempt decryption of the first
+      16 bytes for each root (should be a small number).  
+      """
+   
+      if encryptWithParentChain:
+         self.
+
+# Root modes represent how we anticipate using this root.  An Armory root
+# marked as BIP32_Root means it is the top of a BIP32 tree generated from a 
+# seed value.  If it is marked as BIP32_Floating, it means it is a branch 
+# of BIP32 tree for which we don't have the rootroot (maybe it's a piece 
+# of a BIP32 tree belonging to someone else given to us to generate payment 
+# addresses, or for a multisig wallet.  ARM135 is the old Armory wallet 
+# algorithm that was used for the first 2-3 years of Armory's existence.  
+# JBOK stands for "Just a bunch of keys" (like RAID-JBOD).  JBOK mode will
+# most likely only be used for imported keys and old Bitcoin Core wallets.
+ROOTTYPE = enum('BIP32_Root', 'BIP32_Floating', 'ARM135_Root', 'JBOK')
+
 #############################################################################
-class ArmoryRoot(ArmoryAddress):
+class ArmoryRoot(ArmoryExtendedKey):
       
    FILECODE = 'ROOT'
 
    def __init__(self):
       super(ArmoryRoot, self).__init__()
-      self.wltCreateDate = 0
+
+      # General properties of this root object
+      self.createDate = 0
       self.labelName   = ''
       self.labelDescr  = ''
+
+      # Each root is a candidate for being displayed to the user, should 
+      # have a Base58 ID
       self.uniqueIDBin = ''
-      self.uniqueIDB58 = ''   # Base58 version of reversed-uniqueIDBin
-      self.chainIndexMap = {}
-      self.addrMap       = {}  # maps 20-byte addresses to WalletPayloadAddr objects
-      self.labelsMap     = {}  # maps 20-byte addresses to user-created labels
-      self.chainIndexMap = {}
-      self.p2shMap       = {}  # maps raw P2SH scripts to full scripts.
+      self.uniqueIDB58 = ''    # Base58 version of reversed-uniqueIDBin
 
-      self.relationship    = RootRelationship(None)
-      self.outerCryptInfo  = ArmoryCryptInfo(None)
-
-      self.linearAddr160List = []
-      self.lastComputedChainAddr160  = ''
-      self.lastComputedChainIndex = 0
-      self.highestUsedChainIndex  = 0 
-      self.lastSyncBlockNum = 0
+      # If this root is intended to be used in multi-sig, it should be flagged
+      # In some cases this root will be created with the intention to become
+      # part of a multisig wallet.  In that case, multisig flag will be on,
+      # but the relationshipID will be zeros.  Once a relationship is defined
+      # and added to the wallet, this structure will be updated.
+      self.isMultisig      = False
+      self.relationshipID  = NULLSTR(8)
 
       # If this is a "normal" wallet, it is BIP32.  Other types of wallets 
       # (perhaps old Armory chains, will use different name to identify we
       # may do something different)
-      self.walletType = "BIP32"
+      self.rootType = ROOTTYPE.BIP32_Root
 
       # Extra data that needs to be encrypted, if 
       self.seedCryptInfo   = ArmoryCryptInfo(None)
       self.bip32seed_plain = SecureBinaryData(0)
       self.bip32seed_encr  = SecureBinaryData(0)
       self.bip32seed_size  = 0
+
+      # This helps identify where in the BIP 32 tree this node is.
+      self.rootID   = NULLSTR(8)
+      self.parentID = NULLSTR(8)
+      self.rootPath = []
 
       # FLAGS
       self.isPhoneRoot = False  # don't send from, unless emergency sweep
@@ -1602,9 +1968,12 @@ class ArmoryRoot(ArmoryAddress):
       # "removed" and don't display it or do anything with it.
       self.userRemoved = False
 
+      
+      # 
+      self.wltFileRef = None
 
 
-      """
+      """ # Old pybtcwallet stuff
       self.fileTypeStr    = '\xbaWALLET\x00'
       self.magicBytes     = MAGIC_BYTES
       self.version        = ARMORY_WALLET_VERSION  # (Major, Minor, Minor++, even-more-minor)
@@ -1618,7 +1987,6 @@ class ArmoryRoot(ArmoryAddress):
       self.addrMap     = {}  # maps 20-byte addresses to PyBtcAddress objects
       self.commentsMap = {}  # maps 20-byte addresses to user-created comments
       self.commentLocs = {}  # map comment keys to wallet file locations
-      self.opevalMap   = {}  # maps 20-byte addresses to OP_EVAL data (future)
       self.labelName   = ''
       self.labelDescr  = ''
       self.linearAddr160List = []
@@ -1678,7 +2046,8 @@ class ArmoryRoot(ArmoryAddress):
 
    #############################################################################
    def CreateNewMasterRoot(self, typeStr='BIP32', cryptInfo=None, \
-                                 ekeyObj=None, keyData=None, seedSize=20):
+                                 ekeyObj=None, keyData=None, seedBytes=20,
+                                 extraEntropy=None):
       """
       The last few arguments identify how we plan to encrypt the seed and 
       master node information.  We plan to write this stuff to file right
@@ -1696,16 +2065,16 @@ class ArmoryRoot(ArmoryAddress):
       self.wltVersion = ARMORY_WALLET_VERSION
       self.wltSource  = 'ARMORY'.ljust(12, '\x00')
 
-      # Uses Crypto++ PRNG -- which is suitable for cryptographic purposes
-      # 16 bytes would probably be enough, but I add 4 extra for some margin.
-      # If you don't like it, you can configure it to however many bytes you
-      # want.
+      # Uses Crypto++ PRNG -- which is suitable for cryptographic purposes.
+      # 16 bytes is generally considered enough, though we add 4 extra for 
+      # some margin.  We also have the option to add some extra entropy 
+      # through the last command line argument.  We use this in ArmoryQt
+      # and armoryd by pulling key presses and volatile system files
+      if extraEntropy is None:
+         extraEntropy = NULLSBD() 
 
-      # Keep generating them until
-      LOGINFO('Searching for acceptable BIP32 seed...')
-      self.bip32seed_plain  = SecureBinaryData().GenerateRandom(seedSize)
-      while not SipaStretchFunc(self.bip32seed_plain, n=12):
-         self.bip32seed_plain = SecureBinaryData().GenerateRandom(seedSize)
+      self.bip32seed_plain  = SecureBinaryData().GenerateRandom(seedBytes, 
+                                                                extraEntropy)
 
       LOGINFO('Computing extended key from seed')
       fullExtendedRoot = HDWalletCrypto().ConvertSeedToMasterKey(\
@@ -1868,36 +2237,6 @@ class ArmoryRoot(ArmoryAddress):
       return childAddr
 
 
-   #############################################################################
-   #def lock(self, ekeyObj=None, encryptKey=None):
-      #if self.rootPriv_encr.getSize() > 0:
-         #self.rootPriv_encr.destroy()
-         #self.bip32seed_encr.destroy()
-         #return True
-      #elif self.rootPriv_plain.getSize() == 0:
-         #LOGERROR('No key data is present to lock')
-         #raise EncryptionError
-      #elif encryptKey is None:
-         #LOGERROR('Need encryption info to lock the wallet')
-         #raise EncryptionError
-      #elif not self.privCryptInfo.hasStoredIV() or \
-           #not self.seedCryptInfo.hasStoredIV()
-         #LOGERROR('No stored IV on an ArmoryRoot object')
-         #raise InitVectError
-
-
-      # The ArmoryCryptInfo::encrypt method handles everything as long as 
-      # you pass in sufficient information for it to do its thing.  Since
-      # this is root which always stores its own IV, we don't need to pass
-      # one in
-      #self.rootPriv_encr = self.privCryptInfo.encrypt(self.rootPriv_plain, \
-                                                      #ekeyObj=ekeyObj, \
-                                                      #keyData=encryptKey)
-            
-      #self.bip32seed_encr = self.seedCryptInfo.encrypt(self.bip32seed_plain, \
-                                                       #ekeyObj=ekeyObj, \
-                                                       #keyData=encryptKey)
-      #return True
 
 
    #############################################################################
@@ -1913,6 +2252,7 @@ class ArmoryRoot(ArmoryAddress):
                                                    ekeyObj=ekeyObj, \
                                                    keyData=encryptKey)
             self.bip32seed_plain.resize(self.bip32seed_size)
+
       return superUnlocked
 
 
@@ -1966,6 +2306,7 @@ class ArmoryRoot(ArmoryAddress):
       self.walletFileSafeUpdate( [[WLT_UPDATE_MODIFY, \
                                   self.addrMap[new160].walletByteLoc, \
                                   self.addrMap[new160].serialize()]]  )
+
       return self.addrMap[new160]
 
 
@@ -1975,6 +2316,7 @@ class ArmoryRoot(ArmoryAddress):
 
    #############################################################################
    def changeOuterEncryption(self, encryptInfoObj):
+
 
    #############################################################################
    def forkObserverChain(self, newWalletFile, shortLabel='', longLabel=''):
@@ -2082,12 +2424,13 @@ class AddressLabel(object):
 
    def serialize(self):
       bp = BinaryPacker()
-      bp.put(BINARY_CHUNK, toBytes(self.label), widthBytes=32)
+      bp.put(VAR_UNICODE, self.label)
       return bp.getBinaryString()
 
    def unserialize(self, theStr):
-      self.label = toUnicode(theStr.rstrip('\x00'))
-      return label
+      bu = makeBinaryUnpacker(theStr)
+      self.label = bu.get(VAR_UNICODE)
+      return self.label
 
 
 ################################################################################
@@ -2103,11 +2446,12 @@ class TxComment(object):
 
    def serialize(self):
       bp = BinaryPacker()
-      bp.put(BINARY_CHUNK, toBytes(self.comm), widthBytes=32)
+      bp.put(VAR_UNICODE, self.comm)
       return bp.getBinaryString()
 
    def unserialize(self, theStr):
-      self.comm = toUnicode(theStr.rstrip('\x00'))
+      bu = makeBinaryUnpacker(theStr)
+      self.comm = bu.get(VAR_UNICODE)
       return self
 
 
@@ -2141,24 +2485,18 @@ class ArmoryFileHeader(object):
       bp.put(BINARY_CHUNK,    self.fileID,           widthBytes=  8)
       bp.put(UINT32,          self.armoryVer)       #widthBytes=  4
       bp.put(BINARY_CHUNK,    MAGIC_BYTES,           widthBytes=  4)
-      #bp.put(BINARY_CHUNK,    self.wltID,            widthBytes=  8)
       bp.put(UINT64,          self.flags.toValue()) #widthBytes=  8
       bp.put(UINT64,          self.createTime)      #widthBytes = 8
-      #bp.put(BINARY_CHUNK,    toBytes(name),         widthBytes= 32)
-      #bp.put(BINARY_CHUNK,    toBytes(descr),        widthBytes=256)
       return bp.getBinaryString()
 
    #############################################################################
    def unserialize(self, theStr):
       toUnpack = makeBinaryUnpacker(theStr)
-      self.fileID     = bp.get(BINARY_CHUNK,   8)
+      self.fileID     = bp.get(BINARY_CHUNK, 8)
       self.armoryVer  = bp.get(UINT32)
-      magicbytes      = bp.get(BINARY_CHUNK,   4)
-      #self.wltID      = bp.get(BINARY_CHUNK,   8)
+      magicbytes      = bp.get(BINARY_CHUNK, 4)
       flagsInt        = bp.get(UINT64)
       self.createTime = bp.get(UINT64)
-      #wltNameBin      = bp.get(BINARY_CHUNK,  32)
-      #wltDescrBin     = bp.get(BINARY_CHUNK, 256)
 
       if not magicbytes==MAGIC_BYTES:
          LOGERROR('This wallet is for the wrong network!')
@@ -2671,6 +3009,10 @@ class ArmoryWalletFile(object):
       # in this map.  For importing old Bitcoin-Qt wallets, we will create 
       # a root with a random ID to hold "just a bunch of keys" (JBOK).
       self.rootMapOther = {}
+
+      # Any lockboxes that are maintained in this wallet file
+      # Indexed by p2sh-scrAddr
+      self.lockboxMap = {}
 
       # List of all master encryption keys in this wallet (and also the 
       # data needed to understand how to decrypt them, probably by KDF)

@@ -106,6 +106,7 @@ class ShouldNotGetHereError(Exception): pass
 class BadInputError(Exception): pass
 class TxdpError(Exception): pass
 class P2SHNotSupportedError(Exception): pass
+class UninitializedError(Exception): pass
 
 # Get the host operating system
 opsys = platform.system()

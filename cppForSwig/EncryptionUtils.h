@@ -461,8 +461,8 @@ public:
 class ExtendedKey
 {
 public:
-   ExtendedKey() : key_(0), pubKey_(0), chainCode_(0), version(TEST_PUB),
-                   parentFP(0), validKey(false) {}
+   ExtendedKey() : key_(0), pubKey_(0), chainCode_(0), version_(TEST_PUB),
+                   parentFP_(0), validKey_(false) {}
 
    // Constructor that requires an incoming key (pub or pri), chain code, parent
    // fingerprint, position in the chain, and a boolean indicating if the key's
@@ -496,7 +496,7 @@ public:
    const bool isPrv() const;
    const bool isMaster() const;
    bool hasChainCode() const   { return (chainCode_.getSize() > 0); }
-   bool isInitialized() const  { return validKey; }
+   bool isInitialized() const  { return validKey_; }
 
    SecureBinaryData const & getKey() const   { return key_; }
    SecureBinaryData const & getPub() const    { return pubKey_; }
@@ -506,7 +506,7 @@ public:
    vector<uint32_t>         getIndicesVect() const;
    const SecureBinaryData   getFingerprint() const;
    const SecureBinaryData   getIdentifier() const;
-   SecureBinaryData const & getParentFP() const { return parentFP; }
+   SecureBinaryData const & getParentFP() const { return parentFP_; }
 
    BinaryData               getHash160() const;
    ExtendedKey              copy() const;
@@ -518,7 +518,7 @@ public:
    uint32_t                 getChildNum() const;
    const string getIndexListString(const string prefix="M");
 
-   const uint32_t getVersion() const { return version; }
+   const uint32_t getVersion() const { return version_; }
    const uint8_t getDepth() const { return (uint8_t)indicesList_.size(); }
 
 private:
@@ -532,15 +532,16 @@ private:
    list<uint32_t> indicesList_; // Shows where in the chain we are.
                                 // Empty if key is master or invalid.
 
-   uint32_t version;
-   SecureBinaryData parentFP;
-   bool validKey;
+   uint32_t version_;
+   SecureBinaryData parentFP_;
+   bool validKey_;
 };
 
 
 // NOT USED FOR NOW.
 ////////////////////////////////////////////////////////////////////////////////
-typedef enum {
+typedef enum 
+{
    HDW_CHAIN_EXTERNAL=0,
    HDW_CHAIN_INTERNAL=1,
 }  HDW_CHAIN_TYPE;
@@ -570,20 +571,17 @@ private:
 
 
 ////////////////////////////////////////////////////////////////////////////////
-class HDWalletCryptoSeed {
+class HDWalletCryptoSeed 
+{
 public:
    HDWalletCryptoSeed() {}
    HDWalletCryptoSeed(const SecureBinaryData& rngData);
 
-   const SecureBinaryData& getMasterKey() {
-      return masterKey;
-   }
-   const SecureBinaryData& getMasterChainCode() {
-      return masterChainCode;
-   }
+   const SecureBinaryData& getMasterKey()   { return masterKey_; }
+   const SecureBinaryData& getMasterChain() { return masterChain_; }
 
 private:
-   SecureBinaryData masterKey;       // 33 bytes (0x00 + 32 byte HMAC output)
-   SecureBinaryData masterChainCode; // 32 bytes
+   SecureBinaryData masterKey_;   
+   SecureBinaryData masterChain_;
 };
 #endif
