@@ -199,7 +199,7 @@ class AnnounceDataFetcher(object):
       
 
    #############################################################################
-   def getDecoratedURL(self, url, verbose=False):
+   def getDecoratedURL(self, url):
       """
       This always decorates the URL with at least Armory version.  Use the 
       verbose=True option to add OS, subOS, and a few "random" bytes that help
@@ -207,39 +207,15 @@ class AnnounceDataFetcher(object):
       """
       argsMap = {}
       argsMap['ver'] = getVersionString(BTCARMORY_VERSION)
-   
-      if verbose:
-         if OS_WINDOWS:
-            argsMap['os'] = 'win'
-         elif OS_LINUX:
-            argsMap['os'] = 'lin'
-         elif OS_MACOSX:
-            argsMap['os'] = 'mac'
-         else:
-            argsMap['os'] = 'unk'
-   
-         try:
-            if OS_MACOSX:
-               argsMap['osvar'] = OS_VARIANT
-            else:
-               argsMap['osvar'] = OS_VARIANT[0].lower()
-         except:
-            LOGERR('Unrecognized OS while constructing version URL')
-            argsMap['osvar'] = 'unk'
-   
-         if OS_WINDOWS:
-            argsMap['id'] = binary_to_hex(hash256(USER_HOME_DIR.encode('utf8'))[:4])
-         else:
-            argsMap['id'] = binary_to_hex(hash256(USER_HOME_DIR)[:4])
 
       return url + '?' + urllib.urlencode(argsMap)
 
 
 
    #############################################################################
-   def __fetchAnnounceDigests(self, doDecorate=False):
+   def __fetchAnnounceDigests(self):
       self.lastFetch = RightNow()
-      digestURL = self.getDecoratedURL(self.announceURL, verbose=doDecorate)
+      digestURL = self.getDecoratedURL(self.announceURL)
       backupURL = None
       if self.announceURL_backup:
          backupURL = self.getDecoratedURL(self.announceURL_backup)
@@ -272,7 +248,7 @@ class AnnounceDataFetcher(object):
    #############################################################################
    def __runFetchSequence(self):
       ##### Always decorate the URL with OS, Armory version on the first run
-      digestData = self.__fetchAnnounceDigests(not self.firstSuccess.isSet())
+      digestData = self.__fetchAnnounceDigests()
    
       if len(digestData)==0:
          LOGWARN('Error fetching announce digest')
